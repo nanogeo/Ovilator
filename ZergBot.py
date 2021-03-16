@@ -4,7 +4,6 @@ Created on Sat Nov 28 23:53:47 2020
 
 @author: hocke
 """
-import time
 
 import sc2
 from sc2 import run_game, maps, Race, Difficulty
@@ -272,8 +271,444 @@ class ZergBot(sc2.BotAI):
             await self.expand_tech()
             await self.debug_show_enemy_units()
             await self.micro()
+
+
+########################################
+############# BUILD ORDER ##############
+########################################
+            
+    async def execute_build(self):
+        if self.build_step < len(self.build_order):
+            if self.time >= self.build_order[self.build_step][0]:
+                action = self.build_order[self.build_step][1]
+                if await action():
+                    self.build_step += 1
+
+    async def build_drone(self):
+        if self.minerals >= 50 and self.supply_left >= 1 and len(self.units(LARVA)) > 0:
+            self.do(self.units(LARVA).random.train(DRONE))
+            return True
+        return False
+    
+    async def build_overlord(self):
+        if self.minerals >= 100 and len(self.units(LARVA)) > 0:
+            self.do(self.units(LARVA).random.train(OVERLORD))
+            return True
+        return False
+    
+    async def build_ling(self):
+        if self.minerals >= 50 and self.supply_left >= 1 and len(self.units(LARVA)) > 0 and len(self.structures(SPAWNINGPOOL).ready) > 0:
+            self.do(self.units(LARVA).random.train(ZERGLING))
+            return True
+        return False
+    
+    async def build_queen(self):
+        if self.minerals >= 150 and self.supply_left >= 2:
+            if len(self.structures(HATCHERY).ready.idle) > 0:
+                self.do(self.structures(HATCHERY).ready.idle.random.train(QUEEN))
+                return True
+        return False
+    
+    async def build_pool(self):
+        if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
+            self.builder_drone = self.select_build_worker(self.start_location).tag
+            if len(self.units.tags_in([self.builder_drone])) == 0:
+                self.builder_drone = None
+                return False
+            builder = self.units.tags_in([self.builder_drone])[0]
+            self.build_location = self.start_location + self.start_location - builder.position
+            if self.build_location.distance_to(self.structures(HATCHERY).ready.random) < 4:
+                print("too close")
+                self.build_location = self.build_location + self.start_location - builder.position
+            height = self.get_terrain_z_height(self.build_location)
+            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
+            self._client.debug_sphere_out(Point3((builder.position[0], builder.position[1], height)), 1, color = Point3((255, 255, 0)))
+            self.do(builder.move(self.build_location))
+        else:
+            builder = self.units.tags_in([self.builder_drone])[0]
+            height = self.get_terrain_z_height(self.build_location)
+            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
+            self._client.debug_sphere_out(Point3((builder.position[0], builder.position[1], height)), 1, color = Point3((255, 255, 0)))
+            self.do(builder.move(self.build_location))
+        
+        if self.minerals >= 200:
+            if self.builder_drone is None:
+                return False
+            self.do(builder.build(SPAWNINGPOOL, self.build_location))
+            print("build pool")
+            height = self.get_terrain_z_height(self.build_location)
+            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
+            return True
+        return False
+ 
+
+########################################
+############## OVERLORDS ###############
+########################################
+    
+    def position_new_overlord(self, unit):
+        for pos in self.overlord_positions:
+            if self.convert_location(Point2(pos)) not in self.position_to_ovi_dict:
+                self.position_to_ovi_dict[self.convert_location(Point2(pos))] = unit.tag
+                self.do(unit.move(self.convert_location(Point2(pos))))
+                break
+            
+    async def position_overlords(self):
+        """
+        for i in range(0, len(self.overlord_positions)):
+            pos = self.convert_location(self.overlord_positions[i])
+            height = self.get_terrain_z_height(Point2(self.overlord_positions[i]))
+            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 255, 0)))
+            self._client.debug_text_world("ovi " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 255, 0)), 16)
+        
+        for i in range(0, len(self.rally_points)):
+            pos = self.convert_location(self.rally_points[i])
+            height = self.get_terrain_z_height(Point2(self.rally_points[i]))
+            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 0, 0)))
+            self._client.debug_text_world("rally " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 0, 0)), 16)
+        """   
+        
+        new_expos = self.check_enemy_expansions()
+        if new_expos[1]:
+            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[6]))]
+            if self.units.tags_in([ovi_tag]):
+                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+        if new_expos[2]:
+            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[7]))]
+            if self.units.tags_in([ovi_tag]):
+                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+        if new_expos[3]:
+            ovi_tag1 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[8]))]
+            if self.units.tags_in([ovi_tag1]):
+                self.position_new_overlord(self.units.tags_in([ovi_tag1])[0])
+            ovi_tag2 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[12]))]
+            if self.units.tags_in([ovi_tag2]):
+                self.position_new_overlord(self.units.tags_in([ovi_tag2])[0])
+        if new_expos[4]:
+            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[9]))]
+            if self.units.tags_in([ovi_tag]):
+                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+        if new_expos[5]:
+            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[20]))]
+            if self.units.tags_in([ovi_tag]):
+                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+    
+
+                
+    
+
+########################################
+############### SCOUTING ###############
+########################################
+
+
+
+    async def scouting(self):
+        #send scouts
+        if self.scouts_sent == 0 and self.time >= 150:
+            if self.enemy_expos[0] == 0:
+                #enemy natural is late
+                await self.send_early_scout()
+            self.scouts_sent += 1
+            print("early scout")
+        elif self.scouts_sent == 1 and self.time >= 300:
+            await self.send_scout()
+            self.scouts_sent += 1
+            print("first scout")
+        elif self.scouts_sent == 2 and self.time >= 480:
+            await self.send_scout()
+            self.scouts_sent += 1
+            print("second scout")
+        elif self.scouts_sent == 3 and self.time >= 600:
+            await self.send_scout()
+            self.scouts_sent += 1
+            print("third scout")
+            
+        if self.enemy_expos[0] and self.time < 80:
+            # enemy went nexus first
+            # punsih with lings
+            print("seen nexus first")
+        elif self.enemy_expos[0] == 0 and self.time > 105:
+            # enemy natural is late
+            print("seen late natural")
+        elif self.enemy_expos[1] + self.enemy_expos[2] > 0 and self.time < 240:
+            # emey took 3rd early
+            print("seen early 3rd")
+        elif self.enemy_expos[1] + self.enemy_expos[2] == 0 and self.time > 300:
+            # enemy 3rd is late
+            print("seen late 3rd")
+        elif self.enemy_expos[1] + self.enemy_expos[2] + self.enemy_expos[3] + self.enemy_expos[4] > 1 and self.time < 480:
+            # enemy took 4th early
+            print("seen early 4th")
+        elif self.enemy_expos[1] + self.enemy_expos[2] + self.enemy_expos[3] + self.enemy_expos[4] == 1 and self.time > 540:
+            # enemy 4th is late
+            print("seen late 4th")
+        
+        #count enemy buildings
+        gates = 0
+        robos = 0
+        stargates = 0
+        forges = 0
+        batteries = 0
+        cannons = 0
+        twilights = 0
+        fleet_beacons = 0
+        gases = 0
+        cores = 0
+        archives = 0
+        dark_shrines = 0
+        robo_bays = 0
+        for building in self.enemy_structures():
+            if building.type_id == UnitTypeId.GATEWAY or building.type_id == UnitTypeId.WARPGATE:
+                gates += 1
+            elif building.type_id == UnitTypeId.ROBOTICSFACILITY:
+                 robos += 1
+            elif building.type_id == UnitTypeId.STARGATE:
+                 stargates += 1
+            elif building.type_id == UnitTypeId.FORGE:
+                 forges += 1
+            elif building.type_id == UnitTypeId.SHIELDBATTERY:
+                 batteries += 1
+            elif building.type_id == UnitTypeId.PHOTONCANNON:
+                 cannons += 1
+            elif building.type_id == UnitTypeId.TWILIGHTCOUNCIL:
+                 twilights += 1
+            elif building.type_id == UnitTypeId.FLEETBEACON:
+                 fleet_beacons += 1
+            elif building.type_id == UnitTypeId.ASSIMILATOR:
+                 gases += 1
+            elif building.type_id == UnitTypeId.CYBERNETICSCORE:
+                 cores += 1
+            elif building.type_id == UnitTypeId.TEMPLARARCHIVE:
+                 archives += 1
+            elif building.type_id == UnitTypeId.DARKSHRINE:
+                 dark_shrines += 1
+            elif building.type_id == UnitTypeId.ROBOTICSBAY:
+                 robo_bays += 1
+        #respond to scouts
+        if dark_shrines >= 1:
+            self.lair_need = 100
+        if stargates == 1:
+            # need more queens
+            self.hydra_den_need = 100
+        elif stargates > 1:
+            self.hydra_den_need = 100
+        if fleet_beacons:
+            self.spire_need == 100
+   
+    async def update_units_needs(self):
+        # are any buildings needed
+        if self.expansion_need == 100:
+            return
+        #drones
+        if len(self.townhalls) < 3:
+            self.drone_need = 25
+        elif len(self.units(ZERGLING)) + self.already_pending(ZERGLING) + len(self.units(BANELING)) + self.already_pending(BANELING)  < self.zergling_need:
+            self.drone_need == 25
+        else:
+            self.drone_need = min(80, len(self.townhalls) * 16 + len(self.structures(EXTRACTOR)) * 3)
+        #queens
+        self.queen_need = min(8, len(self.townhalls.ready) * 2 + 2)
+        supply = 0
+        for tag in self.enemy_unit_tags.keys():
+            if self.enemy_unit_tags[tag] not in [PROBE, DRONE, SCV]:
+                supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
+        
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA:
+            #lings
+            if self.supply_workers + self.already_pending(DRONE) < 80:
+                if self.structures(BANELINGNEST).ready:
+                    if self.structures(HYDRALISKDEN):
+                        self.zergling_need == supply * .5
+                    else:
+                        self.zergling_need = supply
+                else:
+                    self.zergling_need = min(supply * 2, 20)
+            else:
+                self.zergling_need = 60
+            #banes
+            self.baneling_need = len(self.units(ZERGLING)) / 2
+            #hydras
+            if len(self.structures(HYDRALISKDEN)) > 0:
+                if self.supply_workers + self.already_pending(DRONE) < 80:
+                    self.hydralisk_need = supply * .25
+                else:
+                    self.hydralisk_need = 30
+        elif self.army_composition == ArmyComp.ROACH_HYDRA:
+            #roaches
+            if len(self.structures(ROACHWARREN)) > 0:
+                if self.supply_workers + self.already_pending(DRONE) < 80:
+                    if len(self.structures(HYDRALISKDEN)) > 0:
+                        self.roach_need = supply * .25
+                    else:
+                        self.roach_need == supply * .5
+                else:
+                    self.roach_need = 30
+            #hydras
+            if len(self.structures(HYDRALISKDEN)) > 0:
+                if self.supply_workers + self.already_pending(DRONE) < 80:
+                    self.hydralisk_need = supply * .25
+                else:
+                    self.hydralisk_need = 30
+    
+    async def update_building_need(self):
+        # the enemy has the same number of bases as us
+        if sum(self.enemy_expos) + 1 >= len(self.structures({HATCHERY, LAIR, HIVE})) + self.already_pending(HATCHERY):
+            self.expansion_need = 100
+        else:
+            self.expansion_need = 0
+
+    async def update_enemy_units(self):
+        for unit in self.enemy_units:
+            if unit.tag not in self.enemy_unit_tags.keys():
+                self.enemy_unit_tags[unit.tag] = unit.type_id
+                #print("+1 " + str(unit.type_id))
+                if unit.type_id in self.enemy_unit_numbers.keys():
+                    self.enemy_unit_numbers[unit.type_id] = self.enemy_unit_numbers[unit.type_id] + 1
+                else:
+                    self.enemy_unit_numbers[unit.type_id] = 1
+
+    async def show_scouted_info(self):
+        print(str(self.enemy_structures))
+                
+    async def send_scout(self):
+        if self.convert_location(Point2(self.overlord_positions[2])) in self.position_to_ovi_dict:
+            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[2]))]
+            print("scout " + str(ovi_tag))
+            for pos in self.main_scout_path:
+                self.do(self.units.tags_in([ovi_tag])[0].move(self.convert_location(Point2(pos)), True))
+            self.position_to_ovi_dict.pop(self.convert_location(Point2(self.overlord_positions[2])))
+            return True
+        return False
+    
+    async def send_early_scout(self):
+        if self.convert_location(Point2(self.overlord_positions[0])) in self.position_to_ovi_dict:
+            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[0]))]
+            for i in [1, 0, 3, 2]:
+                self.do(self.units.tags_in([ovi_tag])[0].move(self.convert_location(Point2(self.main_scout_path[i])), True))
+    
+    async def send_ling_scouts(self):
+        for i in range(0, len(self.zergling_scout_tags)):
+            ling = self.units.tags_in([self.zergling_scout_tags[i]])[0]
+            for j in range(0, len(self.scouting_path[i])):
+                self.do(ling.move(self.convert_location(Point2(self.scouting_path[i][j])), True))
+        return True
+    
+    def check_enemy_expansions(self):
+        new_expos = [0, 0, 0, 0, 0, 0]
+        expo_numbers = [7, 3, 9, 6, 2, 4]
+        if len(self.enemy_structures({NEXUS, HATCHERY, COMMANDCENTER})) > 0:
+            for i in range(0, 5):
+                if self.convert_location(Point2(self.expos[expo_numbers[i]])).distance_to_closest(self.enemy_structures({NEXUS, HATCHERY, COMMANDCENTER})) < 3:
+                    if not self.enemy_expos[i]:
+                        new_expos[i] = 1
+                        self.enemy_expos[i] = 1
+                else:
+                    self.enemy_expos[i] = 0
+        return new_expos
     
     
+########################################
+################# CREEP ################
+########################################
+
+    async def spread_creep(self):
+        for tumor in self.structures(CREEPTUMORBURROWED):
+            if AbilityId.BUILD_CREEPTUMOR_TUMOR in await self.get_available_abilities(tumor):
+                for spot in self.creep_spread_to:
+                    if tumor.distance_to_squared(spot) < 100:
+                        self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, spot))
+                        self.inactive_creep_tumors.append(tumor)
+                        self.creep_spread_to.remove(spot)
+                        break
+    
+    async def place_creep_tumors(self):
+        for queen in self.creep_queens:
+            if self.units.tags_in([queen])[0].energy >= 25 and self.units.tags_in([queen])[0].is_idle and len(self.creep_spread_to) > 0 :
+                self.do(self.units.tags_in([queen])[0](AbilityId.BUILD_CREEPTUMOR_QUEEN, Point2(self.creep_spread_to.pop(0))))
+                
+                
+    def find_creep_spots(self):
+        locations = []
+        current_tumors = self.structures(CREEPTUMOR) + self.structures(CREEPTUMORBURROWED)
+        pixel_map = self.game_info.placement_grid
+        for  i in range(0, pixel_map.width):
+            for j in range(0, pixel_map.height):
+                if pixel_map.__getitem__((i, j)) and self.has_creep(Point2((i, j))):
+                    # ignore any location inside the main
+                    if self.start_location.distance_to(Point2((i, j))) < 30:
+                        continue
+                    # find edges of creep
+                    edge = False
+                    for k in range(i-1, i+2):
+                        for l in range(j-1, j+2):
+                            if pixel_map.__getitem__((k, l)) and not self.has_creep(Point2((k, l))):
+                                edge = True
+                    if edge:
+                        height = self.get_terrain_z_height(Point2((i, j)))
+                        self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
+                        locations.append(Point2((i, j)))
+        # sort the locations based on their distance from the natural and their distance to the closest active tumor
+        if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
+            locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
+        else:
+            locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))))
+        # add all predetermined creep locations to the front
+        for pos in self.creep_locations:
+            if (len(self.structures(CREEPTUMOR)) == 0 or self.convert_location(Point2(pos)).distance_to_closest(current_tumors) > 2) and self.has_creep(self.convert_location(Point2(pos))):
+                locations.insert(0, self.convert_location(Point2(pos)))
+        return locations
+    
+    async def update_creep(self):
+        if not self.updated_creep and int(self.time) % 2 == 0:
+            self.updated_creep = True
+            self.creep_spread_to = self.find_creep_spots()
+        elif self.updated_creep and int(self.time) % 2 == 1:
+            self.updated_creep = False
+   
+    def get_best_tumor_location(self, unit):
+        assert isinstance(unit, Unit)
+        possible_locations = []
+        for x in range(int(unit.position[0] - 10), int(unit.position[0] + 10), 2):
+            for y in range(int(unit.position[1] - 10), int(unit.position[1] + 10), 2):
+                loc = Point2((x, y))
+                # ignore any point not in the tumors range
+                if unit.position.distance_to(loc) >= 10:
+                    continue
+                # ignore any point that would block an expo
+                if loc.distance_to_closest(self.expansion_locations_list) < 4:
+                    continue
+                if self.has_creep(loc) and self.in_placement_grid(loc) and self.is_visible(loc):
+                    possible_locations.append(loc)
+        best_so_far = Point2((0, 0))
+        # find the point farthest from any inactive tumors
+        if len(possible_locations) > 0:
+            if len(self.inactive_creep_tumors) == 0:
+                best_so_far = self.enemy_start_locations[0].closest(possible_locations)
+            else:
+                best_dist = 0
+                for loc in possible_locations:
+                    dist = loc.distance_to_closest(self.inactive_creep_tumors)
+                    if dist > best_dist:
+                        best_dist = dist
+                        best_so_far = loc
+        return best_so_far
+
+    def spread_inject_queens(self):
+        used_queens = []
+        for hatch in self.townhalls.ready:
+            closest_queens = self.units.tags_in(self.injecting_queens)._list_sorted_by_distance_to(hatch)
+            for queen in closest_queens:
+                if queen not in used_queens:
+                    #print("hatch: " + str(hatch) + " queen: " + str(queen))
+                    self.do(queen.move(hatch))
+                    used_queens.append(queen)
+                    break
+
+########################################
+################# MICRO ################
+########################################
+
     async def micro(self):
         need_to_protect = None
         # are we being attacked right now?
@@ -423,168 +858,11 @@ class ZergBot(sc2.BotAI):
             self.do(roach(AbilityId.BURROWUP_ROACH))
         elif roach.is_burrowed:
             self.do(roach.move(Point2(self.rally_point)))
-            
-    
-    async def execute_build(self):
-        if self.build_step < len(self.build_order):
-            if self.time >= self.build_order[self.build_step][0]:
-                action = self.build_order[self.build_step][1]
-                if await action():
-                    self.build_step += 1
-    
-    async def scouting(self):
-        #send scouts
-        if self.scouts_sent == 0 and self.time >= 150:
-            if self.enemy_expos[0] == 0:
-                #enemy natural is late
-                await self.send_early_scout()
-            self.scouts_sent += 1
-            print("early scout")
-        elif self.scouts_sent == 1 and self.time >= 300:
-            await self.send_scout()
-            self.scouts_sent += 1
-            print("first scout")
-        elif self.scouts_sent == 2 and self.time >= 480:
-            await self.send_scout()
-            self.scouts_sent += 1
-            print("second scout")
-        elif self.scouts_sent == 3 and self.time >= 600:
-            await self.send_scout()
-            self.scouts_sent += 1
-            print("third scout")
-            
-        if self.enemy_expos[0] and self.time < 80:
-            # enemy went nexus first
-            # punsih with lings
-            print("seen nexus first")
-        elif self.enemy_expos[0] == 0 and self.time > 105:
-            # enemy natural is late
-            print("seen late natural")
-        elif self.enemy_expos[1] + self.enemy_expos[2] > 0 and self.time < 240:
-            # emey took 3rd early
-            print("seen early 3rd")
-        elif self.enemy_expos[1] + self.enemy_expos[2] == 0 and self.time > 300:
-            # enemy 3rd is late
-            print("seen late 3rd")
-        elif self.enemy_expos[1] + self.enemy_expos[2] + self.enemy_expos[3] + self.enemy_expos[4] > 1 and self.time < 480:
-            # enemy took 4th early
-            print("seen early 4th")
-        elif self.enemy_expos[1] + self.enemy_expos[2] + self.enemy_expos[3] + self.enemy_expos[4] == 1 and self.time > 540:
-            # enemy 4th is late
-            print("seen late 4th")
-        
-        #count enemy buildings
-        gates = 0
-        robos = 0
-        stargates = 0
-        forges = 0
-        batteries = 0
-        cannons = 0
-        twilights = 0
-        fleet_beacons = 0
-        gases = 0
-        cores = 0
-        archives = 0
-        dark_shrines = 0
-        robo_bays = 0
-        for building in self.enemy_structures():
-            if building.type_id == UnitTypeId.GATEWAY or building.type_id == UnitTypeId.WARPGATE:
-                gates += 1
-            elif building.type_id == UnitTypeId.ROBOTICSFACILITY:
-                 robos += 1
-            elif building.type_id == UnitTypeId.STARGATE:
-                 stargates += 1
-            elif building.type_id == UnitTypeId.FORGE:
-                 forges += 1
-            elif building.type_id == UnitTypeId.SHIELDBATTERY:
-                 batteries += 1
-            elif building.type_id == UnitTypeId.PHOTONCANNON:
-                 cannons += 1
-            elif building.type_id == UnitTypeId.TWILIGHTCOUNCIL:
-                 twilights += 1
-            elif building.type_id == UnitTypeId.FLEETBEACON:
-                 fleet_beacons += 1
-            elif building.type_id == UnitTypeId.ASSIMILATOR:
-                 gases += 1
-            elif building.type_id == UnitTypeId.CYBERNETICSCORE:
-                 cores += 1
-            elif building.type_id == UnitTypeId.TEMPLARARCHIVE:
-                 archives += 1
-            elif building.type_id == UnitTypeId.DARKSHRINE:
-                 dark_shrines += 1
-            elif building.type_id == UnitTypeId.ROBOTICSBAY:
-                 robo_bays += 1
-        #respond to scouts
-        if dark_shrines >= 1:
-            self.lair_need = 100
-        if stargates == 1:
-            # need more queens
-            self.hydra_den_need = 100
-        elif stargates > 1:
-            self.hydra_den_need = 100
-        if fleet_beacons:
-            self.spire_need == 100
-        
-            
-    
-    #build steps
-    async def build_drone(self):
-        if self.minerals >= 50 and self.supply_left >= 1 and len(self.units(LARVA)) > 0:
-            self.do(self.units(LARVA).random.train(DRONE))
-            return True
-        return False
-    
-    async def build_overlord(self):
-        if self.minerals >= 100 and len(self.units(LARVA)) > 0:
-            self.do(self.units(LARVA).random.train(OVERLORD))
-            return True
-        return False
-    
-    async def build_ling(self):
-        if self.minerals >= 50 and self.supply_left >= 1 and len(self.units(LARVA)) > 0 and len(self.structures(SPAWNINGPOOL).ready) > 0:
-            self.do(self.units(LARVA).random.train(ZERGLING))
-            return True
-        return False
-    
-    async def build_queen(self):
-        if self.minerals >= 150 and self.supply_left >= 2:
-            if len(self.structures(HATCHERY).ready.idle) > 0:
-                self.do(self.structures(HATCHERY).ready.idle.random.train(QUEEN))
-                return True
-        return False
-    
-    async def build_pool(self):
-        if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
-            self.builder_drone = self.select_build_worker(self.start_location).tag
-            if len(self.units.tags_in([self.builder_drone])) == 0:
-                self.builder_drone = None
-                return False
-            builder = self.units.tags_in([self.builder_drone])[0]
-            self.build_location = self.start_location + self.start_location - builder.position
-            if self.build_location.distance_to(self.structures(HATCHERY).ready.random) < 4:
-                print("too close")
-                self.build_location = self.build_location + self.start_location - builder.position
-            height = self.get_terrain_z_height(self.build_location)
-            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
-            self._client.debug_sphere_out(Point3((builder.position[0], builder.position[1], height)), 1, color = Point3((255, 255, 0)))
-            self.do(builder.move(self.build_location))
-        else:
-            builder = self.units.tags_in([self.builder_drone])[0]
-            height = self.get_terrain_z_height(self.build_location)
-            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
-            self._client.debug_sphere_out(Point3((builder.position[0], builder.position[1], height)), 1, color = Point3((255, 255, 0)))
-            self.do(builder.move(self.build_location))
-        
-        if self.minerals >= 200:
-            if self.builder_drone is None:
-                return False
-            self.do(builder.build(SPAWNINGPOOL, self.build_location))
-            print("build pool")
-            height = self.get_terrain_z_height(self.build_location)
-            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
-            return True
-        return False
-    
+
+
+########################################
+################# MACRO ################
+########################################
     async def build_roach_warren(self):
         if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
             self.build_location = None
@@ -730,88 +1008,7 @@ class ZergBot(sc2.BotAI):
             if len(self.units(BANELING)) + self.already_pending(BANELING) < self.baneling_need:
                 if self.minerals >= 25 and self.vespene >= 25:
                     self.do(zergling(AbilityId.MORPHZERGLINGTOBANELING_BANELING))
-    
-    async def update_units_needs(self):
-        # are any buildings needed
-        if self.expansion_need == 100:
-            return
-        #drones
-        if len(self.townhalls) < 3:
-            self.drone_need = 25
-        elif len(self.units(ZERGLING)) + self.already_pending(ZERGLING) + len(self.units(BANELING)) + self.already_pending(BANELING)  < self.zergling_need:
-            self.drone_need == 25
-        else:
-            self.drone_need = min(80, len(self.townhalls) * 16 + len(self.structures(EXTRACTOR)) * 3)
-        #queens
-        self.queen_need = min(8, len(self.townhalls.ready) * 2 + 2)
-        supply = 0
-        for tag in self.enemy_unit_tags.keys():
-            if self.enemy_unit_tags[tag] not in [PROBE, DRONE, SCV]:
-                supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
-        
-        if self.army_composition == ArmyComp.LING_BANE_HYDRA:
-            #lings
-            if self.supply_workers + self.already_pending(DRONE) < 80:
-                if self.structures(BANELINGNEST).ready:
-                    if self.structures(HYDRALISKDEN):
-                        self.zergling_need == supply * .5
-                    else:
-                        self.zergling_need = supply
-                else:
-                    self.zergling_need = min(supply * 2, 20)
-            else:
-                self.zergling_need = 60
-            #banes
-            self.baneling_need = len(self.units(ZERGLING)) / 2
-            #hydras
-            if len(self.structures(HYDRALISKDEN)) > 0:
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    self.hydralisk_need = supply * .25
-                else:
-                    self.hydralisk_need = 30
-        elif self.army_composition == ArmyComp.ROACH_HYDRA:
-            #roaches
-            if len(self.structures(ROACHWARREN)) > 0:
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    if len(self.structures(HYDRALISKDEN)) > 0:
-                        self.roach_need = supply * .25
-                    else:
-                        self.roach_need == supply * .5
-                else:
-                    self.roach_need = 30
-            #hydras
-            if len(self.structures(HYDRALISKDEN)) > 0:
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    self.hydralisk_need = supply * .25
-                else:
-                    self.hydralisk_need = 30
-    
-    async def update_building_need(self):
-        # the enemy has the same number of bases as us
-        if sum(self.enemy_expos) + 1 >= len(self.structures({HATCHERY, LAIR, HIVE})) + self.already_pending(HATCHERY):
-            self.expansion_need = 100
-        else:
-            self.expansion_need = 0
-        
-        
-            
-    
-    async def update_enemy_units(self):
-        for unit in self.enemy_units:
-            if unit.tag not in self.enemy_unit_tags.keys():
-                self.enemy_unit_tags[unit.tag] = unit.type_id
-                #print("+1 " + str(unit.type_id))
-                if unit.type_id in self.enemy_unit_numbers.keys():
-                    self.enemy_unit_numbers[unit.type_id] = self.enemy_unit_numbers[unit.type_id] + 1
-                else:
-                    self.enemy_unit_numbers[unit.type_id] = 1
-    
-    async def debug_show_enemy_units(self):
-        if round(self.time) % 60 == 0:
-            print(str(self.enemy_unit_numbers))
-            if len(self.units(ZERGLING)) + self.already_pending(ZERGLING) < self.zergling_need:
-                print("z need: " + str(self.zergling_need))
-    
+
     async def make_expansions(self):
         if self.time > 180 and len(self.structures(HATCHERY)) < 3:
             await self.expand_now()
@@ -870,144 +1067,7 @@ class ZergBot(sc2.BotAI):
                     hatchery = self.townhalls._list_sorted_by_distance_to(queen)[0]
                     if not hatchery.has_buff(BuffId.QUEENSPAWNLARVATIMER):
                         self.do(queen(AbilityId.EFFECT_INJECTLARVA, hatchery))
-
-    async def on_unit_created(self, unit):
-        if unit.type_id == UnitTypeId.QUEEN:
-            if len(self.injecting_queens) > len(self.creep_queens):
-                self.creep_queens.append(unit.tag)
-            else:
-                self.injecting_queens.append(unit.tag)
-            self.spread_inject_queens()
-        if unit.type_id == UnitTypeId.OVERLORD:
-            self.position_new_overlord(unit)
-        if unit.type_id == UnitTypeId.ZERGLING:
-            for i in range(0, len(self.zergling_scout_tags)):
-                if self.zergling_scout_tags[i] == None:
-                    self.zergling_scout_tags[i] = unit.tag
-                    break
     
-    async def on_building_construction_complete(self, building):
-        if building.type_id == UnitTypeId.HATCHERY:
-            self.spread_inject_queens()
-            
-    
-    def spread_inject_queens(self):
-        used_queens = []
-        for hatch in self.townhalls.ready:
-            closest_queens = self.units.tags_in(self.injecting_queens)._list_sorted_by_distance_to(hatch)
-            for queen in closest_queens:
-                if queen not in used_queens:
-                    #print("hatch: " + str(hatch) + " queen: " + str(queen))
-                    self.do(queen.move(hatch))
-                    used_queens.append(queen)
-                    break
-
-    async def on_unit_destroyed(self, unit_tag):
-        if unit_tag in self.enemy_unit_tags.keys():
-            #print("-1 " + str(self.enemy_unit_tags[unit_tag]))
-            self.enemy_unit_numbers[self.enemy_unit_tags[unit_tag]] = self.enemy_unit_numbers[self.enemy_unit_tags[unit_tag]] - 1
-            del self.enemy_unit_tags[unit_tag]
-        for queen in self.injecting_queens:
-            if unit_tag == queen:
-                self.injecting_queens.remove(queen)
-        for queen in self.creep_queens:
-            if unit_tag == queen:
-                self.creep_queens.remove(queen)
-        for i in range(0, 6):
-            if self.zergling_scout_tags[i] == unit_tag:
-                self.zergling_scout_tags[i] = None
-                break
-
-        
-    """
-    async def on_building_construction_complete(self, unit):
-        if unit.type_id == UnitTypeId.HATCHERY:
-            print("hatch done")
-            self.do(unit.train(QUEEN))"""
-            
-    async def spread_creep(self):
-        for tumor in self.structures(CREEPTUMORBURROWED):
-            if AbilityId.BUILD_CREEPTUMOR_TUMOR in await self.get_available_abilities(tumor):
-                for spot in self.creep_spread_to:
-                    if tumor.distance_to_squared(spot) < 100:
-                        self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, spot))
-                        self.inactive_creep_tumors.append(tumor)
-                        self.creep_spread_to.remove(spot)
-                        break
-    
-    async def place_creep_tumors(self):
-        for queen in self.creep_queens:
-            if self.units.tags_in([queen])[0].energy >= 25 and self.units.tags_in([queen])[0].is_idle and len(self.creep_spread_to) > 0 :
-                self.do(self.units.tags_in([queen])[0](AbilityId.BUILD_CREEPTUMOR_QUEEN, Point2(self.creep_spread_to.pop(0))))
-                
-                
-    def find_creep_spots(self):
-        locations = []
-        current_tumors = self.structures(CREEPTUMOR) + self.structures(CREEPTUMORBURROWED)
-        pixel_map = self.game_info.placement_grid
-        for  i in range(0, pixel_map.width):
-            for j in range(0, pixel_map.height):
-                if pixel_map.__getitem__((i, j)) and self.has_creep(Point2((i, j))):
-                    # ignore any location inside the main
-                    if self.start_location.distance_to(Point2((i, j))) < 30:
-                        continue
-                    # find edges of creep
-                    edge = False
-                    for k in range(i-1, i+2):
-                        for l in range(j-1, j+2):
-                            if pixel_map.__getitem__((k, l)) and not self.has_creep(Point2((k, l))):
-                                edge = True
-                    if edge:
-                        height = self.get_terrain_z_height(Point2((i, j)))
-                        self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
-                        locations.append(Point2((i, j)))
-        # sort the locations based on their distance from the natural and their distance to the closest active tumor
-        if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
-            locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
-        else:
-            locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))))
-        # add all predetermined creep locations to the front
-        for pos in self.creep_locations:
-            if (len(self.structures(CREEPTUMOR)) == 0 or self.convert_location(Point2(pos)).distance_to_closest(current_tumors) > 2) and self.has_creep(self.convert_location(Point2(pos))):
-                locations.insert(0, self.convert_location(Point2(pos)))
-        return locations
-    
-    async def update_creep(self):
-        if not self.updated_creep and int(self.time) % 2 == 0:
-            self.updated_creep = True
-            self.creep_spread_to = self.find_creep_spots()
-        elif self.updated_creep and int(self.time) % 2 == 1:
-            self.updated_creep = False
-   
-    def get_best_tumor_location(self, unit):
-        assert isinstance(unit, Unit)
-        possible_locations = []
-        for x in range(int(unit.position[0] - 10), int(unit.position[0] + 10), 2):
-            for y in range(int(unit.position[1] - 10), int(unit.position[1] + 10), 2):
-                loc = Point2((x, y))
-                # ignore any point not in the tumors range
-                if unit.position.distance_to(loc) >= 10:
-                    continue
-                # ignore any point that would block an expo
-                if loc.distance_to_closest(self.expansion_locations_list) < 4:
-                    continue
-                if self.has_creep(loc) and self.in_placement_grid(loc) and self.is_visible(loc):
-                    possible_locations.append(loc)
-        best_so_far = Point2((0, 0))
-        # find the point farthest from any inactive tumors
-        if len(possible_locations) > 0:
-            if len(self.inactive_creep_tumors) == 0:
-                best_so_far = self.enemy_start_locations[0].closest(possible_locations)
-            else:
-                best_dist = 0
-                for loc in possible_locations:
-                    dist = loc.distance_to_closest(self.inactive_creep_tumors)
-                    if dist > best_dist:
-                        best_dist = dist
-                        best_so_far = loc
-        return best_so_far
-
-        
     async def get_upgrades(self):
         # melee
         if self.army_composition == ArmyComp.LING_BANE_HYDRA:
@@ -1091,104 +1151,61 @@ class ZergBot(sc2.BotAI):
                 hatch = self.structures(HATCHERY).ready.idle.random
             self.do(hatch(AbilityId.RESEARCH_BURROW))
     
+    
 
-    async def position_overlords(self):
-        for i in range(0, len(self.overlord_positions)):
-            pos = self.convert_location(self.overlord_positions[i])
-            height = self.get_terrain_z_height(Point2(self.overlord_positions[i]))
-            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 255, 0)))
-            self._client.debug_text_world("ovi " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 255, 0)), 16)
-        
-        for i in range(0, len(self.rally_points)):
-            pos = self.convert_location(self.rally_points[i])
-            height = self.get_terrain_z_height(Point2(self.rally_points[i]))
-            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 0, 0)))
-            self._client.debug_text_world("rally " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 0, 0)), 16)
+########################################
+################ UTILITY ###############
+########################################
+    
+    async def debug_show_enemy_units(self):
+        if round(self.time) % 60 == 0:
+            print(str(self.enemy_unit_numbers))
+            if len(self.units(ZERGLING)) + self.already_pending(ZERGLING) < self.zergling_need:
+                print("z need: " + str(self.zergling_need))
+
+    async def on_unit_created(self, unit):
+        if unit.type_id == UnitTypeId.QUEEN:
+            if len(self.injecting_queens) > len(self.creep_queens):
+                self.creep_queens.append(unit.tag)
+            else:
+                self.injecting_queens.append(unit.tag)
+            self.spread_inject_queens()
+        if unit.type_id == UnitTypeId.OVERLORD:
+            self.position_new_overlord(unit)
+        if unit.type_id == UnitTypeId.ZERGLING:
+            for i in range(0, len(self.zergling_scout_tags)):
+                if self.zergling_scout_tags[i] == None:
+                    self.zergling_scout_tags[i] = unit.tag
+                    break
+    
+    async def on_building_construction_complete(self, building):
+        if building.type_id == UnitTypeId.HATCHERY:
+            self.spread_inject_queens()
             
-        
-        new_expos = self.check_enemy_expansions()
-        if new_expos[1]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[6]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
-        if new_expos[2]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[7]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
-        if new_expos[3]:
-            ovi_tag1 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[8]))]
-            if self.units.tags_in([ovi_tag1]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag1])[0])
-            ovi_tag2 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[12]))]
-            if self.units.tags_in([ovi_tag2]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag2])[0])
-        if new_expos[4]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[9]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
-        if new_expos[5]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[20]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
-    
-    
-    
-    def check_enemy_expansions(self):
-        new_expos = [0, 0, 0, 0, 0, 0]
-        expo_numbers = [7, 3, 9, 6, 2, 4]
-        if len(self.enemy_structures({NEXUS, HATCHERY, COMMANDCENTER})) > 0:
-            for i in range(0, 5):
-                if self.convert_location(Point2(self.expos[expo_numbers[i]])).distance_to_closest(self.enemy_structures({NEXUS, HATCHERY, COMMANDCENTER})) < 3:
-                    if not self.enemy_expos[i]:
-                        new_expos[i] = 1
-                        self.enemy_expos[i] = 1
-                else:
-                    self.enemy_expos[i] = 0
-        return new_expos
-    
-    
-    
-    def position_new_overlord(self, unit):
-        for pos in self.overlord_positions:
-            if self.convert_location(Point2(pos)) not in self.position_to_ovi_dict:
-                self.position_to_ovi_dict[self.convert_location(Point2(pos))] = unit.tag
-                self.do(unit.move(self.convert_location(Point2(pos))))
+
+
+    async def on_unit_destroyed(self, unit_tag):
+        if unit_tag in self.enemy_unit_tags.keys():
+            #print("-1 " + str(self.enemy_unit_tags[unit_tag]))
+            self.enemy_unit_numbers[self.enemy_unit_tags[unit_tag]] = self.enemy_unit_numbers[self.enemy_unit_tags[unit_tag]] - 1
+            del self.enemy_unit_tags[unit_tag]
+        for queen in self.injecting_queens:
+            if unit_tag == queen:
+                self.injecting_queens.remove(queen)
+        for queen in self.creep_queens:
+            if unit_tag == queen:
+                self.creep_queens.remove(queen)
+        for i in range(0, 6):
+            if self.zergling_scout_tags[i] == unit_tag:
+                self.zergling_scout_tags[i] = None
                 break
 
-    async def show_scouted_info(self):
-        print(str(self.enemy_structures))
-                
-    async def send_scout(self):
-        if self.convert_location(Point2(self.overlord_positions[2])) in self.position_to_ovi_dict:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[2]))]
-            print("scout " + str(ovi_tag))
-            for pos in self.main_scout_path:
-                self.do(self.units.tags_in([ovi_tag])[0].move(self.convert_location(Point2(pos)), True))
-            self.position_to_ovi_dict.pop(self.convert_location(Point2(self.overlord_positions[2])))
-            return True
-        return False
-    
-    async def send_early_scout(self):
-        if self.convert_location(Point2(self.overlord_positions[0])) in self.position_to_ovi_dict:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[0]))]
-            for i in [1, 0, 3, 2]:
-                self.do(self.units.tags_in([ovi_tag])[0].move(self.convert_location(Point2(self.main_scout_path[i])), True))
-    
-    async def send_ling_scouts(self):
-        for i in range(0, len(self.zergling_scout_tags)):
-            ling = self.units.tags_in([self.zergling_scout_tags[i]])[0]
-            for j in range(0, len(self.scouting_path[i])):
-                self.do(ling.move(self.convert_location(Point2(self.scouting_path[i][j])), True))
-        return True
-    
 
     def convert_location(self, location):
         if self.start_location == Point2((143.5, 32.5)):
             return location
         else:
             return Point2((143.5, 32.5)) - Point2(location) + Point2((40.5, 131.5))
-
-    
 
 
 
@@ -1290,12 +1307,4 @@ run_game(maps.get("LightshadeLE"), [
         ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
-
-
-
-
-
-
-
-
 

@@ -15,7 +15,7 @@ from sc2.constants import ROACHBURROWED
 from sc2.constants import HATCHERY, LAIR, HIVE, EXTRACTOR, SPAWNINGPOOL, ROACHWARREN, HYDRALISKDEN, LURKERDEN, SPIRE, GREATERSPIRE, EVOLUTIONCHAMBER, SPORECRAWLER, SPINECRAWLER, INFESTATIONPIT, BANELINGNEST, CREEPTUMOR, NYDUSNETWORK, ULTRALISKCAVERN, CREEPTUMORBURROWED, CREEPTUMORQUEEN
 from sc2.constants import PROBE, SCV
 from sc2.constants import NEXUS
-from sc2.constants import COMMANDCENTER
+from sc2.constants import COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS
 from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId
@@ -253,7 +253,7 @@ class ZergBot(sc2.BotAI):
         self.burrow_movement_researched = False
         self.army_state = ArmyState.CONSOLIDATING
         
-        self.army_composition = ArmyComp.ROACH_HYDRA
+        self.army_composition = ArmyComp.LING_BANE_HYDRA
         
         
     
@@ -269,6 +269,7 @@ class ZergBot(sc2.BotAI):
         await self.position_overlords()
         await self.scouting()
         await self.update_enemy_units()
+        await self.track_enemy_army_position()
         if self.build_step >= len(self.build_order):
             await self.update_building_need()
             await self.use_larva()
@@ -308,8 +309,8 @@ class ZergBot(sc2.BotAI):
     
     async def build_queen(self):
         if self.minerals >= 150 and self.supply_left >= 2:
-            if len(self.structures(HATCHERY).ready.idle) > 0:
-                self.do(self.structures(HATCHERY).ready.idle.random.train(QUEEN))
+            if len(self.structures({HATCHERY, LAIR, HIVE}).ready.idle) > 0:
+                self.do(self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random.train(QUEEN))
                 return True
         return False
     
@@ -321,7 +322,7 @@ class ZergBot(sc2.BotAI):
                 return False
             builder = self.units.tags_in([self.builder_drone])[0]
             self.build_location = self.start_location + self.start_location - builder.position
-            if self.build_location.distance_to(self.structures(HATCHERY).ready.random) < 4:
+            if self.build_location.distance_to(self.structures({HATCHERY, LAIR, HIVE}).ready.random) < 4:
                 print("too close")
                 self.build_location = self.build_location + self.start_location - builder.position
             height = self.get_terrain_z_height(self.build_location)
@@ -562,7 +563,7 @@ class ZergBot(sc2.BotAI):
     
     async def update_building_need(self):
         # the enemy has the same number of bases as us
-        if sum(self.enemy_expos) + 1 >= len(self.structures({HATCHERY, LAIR, HIVE})) + self.already_pending(HATCHERY) or self.time >= self.last_expansion_time + 180:
+        if sum(self.enemy_expos) + 1 >= len(self.townhalls) + self.already_pending(HATCHERY) or self.time >= self.last_expansion_time + 180:
             self.expansion_need = 100
         else:
             self.expansion_need = 0
@@ -606,15 +607,34 @@ class ZergBot(sc2.BotAI):
     def check_enemy_expansions(self):
         new_expos = [0, 0, 0, 0, 0, 0]
         expo_numbers = [7, 3, 9, 6, 2, 4]
-        if len(self.enemy_structures({NEXUS, HATCHERY, COMMANDCENTER})) > 0:
+        if len(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})) > 0:
             for i in range(0, 5):
-                if self.convert_location(Point2(self.expos[expo_numbers[i]])).distance_to_closest(self.enemy_structures({NEXUS, HATCHERY, COMMANDCENTER})) < 3:
+                if self.convert_location(Point2(self.expos[expo_numbers[i]])).distance_to_closest(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})) < 3:
                     if not self.enemy_expos[i]:
                         new_expos[i] = 1
                         self.enemy_expos[i] = 1
                 else:
                     self.enemy_expos[i] = 0
         return new_expos
+    
+    async def track_enemy_army_position(self):
+        attacking_units = self.enemy_units.subgroup(unit for unit in self.enemy_units if self.has_creep(unit.position))
+        lone_enemy_units = []
+        if len(attacking_units) < 2:
+            for unit in attacking_units:
+                lone_enemy_units.append(unit)
+        else:
+            for unit in attacking_units:
+                if unit.position.distance_to(unit.position.sort_by_distance(attacking_units)[1]) > 5:
+                    lone_enemy_units.append(unit)
+        attacking_units = attacking_units.subgroup(unit for unit in attacking_units if unit not in lone_enemy_units)
+        
+        if len(attacking_units) >= 2:
+            army_location = attacking_units.center
+            height = self.get_terrain_z_height(army_location)
+            self._client.debug_sphere_out(Point3((army_location[0], army_location[1], height)), 4, color = Point3((255, 0, 0)))
+        for unit in lone_enemy_units:
+            self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 0, 255)))
     
     
 ########################################
@@ -875,6 +895,7 @@ class ZergBot(sc2.BotAI):
 ########################################
 ################# MACRO ################
 ########################################
+
     async def build_roach_warren(self):
         if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
             self.build_location = None
@@ -973,7 +994,7 @@ class ZergBot(sc2.BotAI):
         print("build gas??")
         if self.minerals >= 25:
             print("build gas")
-            for hatch in self.structures(HATCHERY).ready:
+            for hatch in self.structures({HATCHERY, LAIR, HIVE}).ready:
                 vespenes = self.vespene_geyser.closer_than(10.0, hatch)
                 for vespene in vespenes:
                     worker = self.select_build_worker(vespene.position)
@@ -1023,8 +1044,9 @@ class ZergBot(sc2.BotAI):
 
     async def make_expansions(self):
         if self.expansion_need == 100:
-            self.last_expansion_time = self.time
-            await self.expand_now()
+            if self.minerals >= 300:
+                self.last_expansion_time = self.time
+                await self.expand_now()
         """
         if self.time > 180 and len(self.structures(HATCHERY)) < 3:
             await self.expand_now()
@@ -1045,7 +1067,7 @@ class ZergBot(sc2.BotAI):
                 
         if self.supply_workers > 40 or self.time > 240:
             if len(self.structures(LAIR)) + len(self.structures(HIVE)) == 0 and not self.already_pending(LAIR):
-                hatch = self.structures(HATCHERY)[0]
+                hatch = self.structures({HATCHERY, LAIR, HIVE})[0]
                 for ability in await self.get_available_abilities(hatch):
                     if ability == AbilityId.UPGRADETOLAIR_LAIR:
                         self.do(hatch(AbilityId.UPGRADETOLAIR_LAIR))
@@ -1057,11 +1079,9 @@ class ZergBot(sc2.BotAI):
     
     async def build_extractor(self):
         if self.vespene > 500 or (self.time < 360 and len(self.structures(EXTRACTOR)) >= 2):
-            print("don't build a gas")
             return
-        for hatch in self.structures(HATCHERY).ready:
+        for hatch in self.structures({HATCHERY, LAIR, HIVE}).ready:
             if hatch.assigned_harvesters > hatch.ideal_harvesters - 2 or (self.vespene < 100 and self.already_pending(EXTRACTOR) < 2):
-                print("build a gas")
                 vespenes = self.vespene_geyser.closer_than(10.0, hatch)
                 for vespene in vespenes:
                     if self.can_afford(EXTRACTOR) and not self.structures(EXTRACTOR).closer_than(1.0, vespene).exists:
@@ -1074,7 +1094,7 @@ class ZergBot(sc2.BotAI):
         for queen in self.units(QUEEN):
             if queen.tag in self.injecting_queens:
                 self._client.debug_sphere_out(queen.position3d, 2, color = Point3((0, 0, 255)))
-                hatches = self.structures(HATCHERY).sorted_by_distance_to(queen.position3d)
+                hatches = self.structures({HATCHERY, LAIR, HIVE}).sorted_by_distance_to(queen.position3d)
                 for hatch in hatches:
                     if hatch == hatches[0]:
                         self._client.debug_line_out(queen, hatch, color = Point3((0, 255, 0)))
@@ -1252,22 +1272,22 @@ class ZergBot(sc2.BotAI):
 
 
         # hatchery
-        if self.structures(HATCHERY).ready.idle and not self.already_pending_upgrade(UpgradeId.OVERLORDSPEED) and self.time > 300:
+        if self.structures({HATCHERY, LAIR, HIVE}).ready.idle and not self.already_pending_upgrade(UpgradeId.OVERLORDSPEED) and self.time > 300:
             if self.can_afford(UpgradeId.OVERLORDSPEED):
-                hatch = self.structures(HATCHERY).ready.idle.random
-                if hatch == self.structures(HATCHERY)[0]:
-                    hatch = self.structures(HATCHERY).ready.idle.random
+                hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
+                if hatch == self.structures({HATCHERY, LAIR, HIVE})[0]:
+                    hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
                 self.do(hatch(AbilityId.RESEARCH_PNEUMATIZEDCARAPACE))
                 self.pending_upgrade = 0
             elif self.calculate_cost(AbilityId.RESEARCH_PNEUMATIZEDCARAPACE).minerals > self.minerals:
                 self.pending_upgrade = 1
             else:
                 self.pending_upgrade = 2
-        elif self.structures(HATCHERY).ready.idle and not self.already_pending_upgrade(UpgradeId.BURROW) and self.time > 300:
+        elif self.structures({HATCHERY, LAIR, HIVE}).ready.idle and not self.already_pending_upgrade(UpgradeId.BURROW) and self.time > 300:
             if self.can_afford(UpgradeId.BURROW):
-                hatch = self.structures(HATCHERY).ready.idle.random
-                if hatch == self.structures(HATCHERY)[0]:
-                    hatch = self.structures(HATCHERY).ready.idle.random
+                hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
+                if hatch == self.structures({HATCHERY, LAIR, HIVE})[0]:
+                    hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
                 self.do(hatch(AbilityId.RESEARCH_BURROW))
                 self.pending_upgrade = 0
             elif self.calculate_cost(AbilityId.RESEARCH_BURROW).minerals > self.minerals:
@@ -1295,6 +1315,9 @@ class ZergBot(sc2.BotAI):
                 print("hydra need: " + str(self.hydralisk_need))
             if self.expansion_need == 100:
                 print("need to expand")
+            else:
+                 print("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
+                 print("last expo: " + str(self.last_expansion_time + 180) + " time " + str(self.time))
             print("END DEBUG")
         elif self.has_debug and round(self.time) % self.debug_interval == 1:
             self.has_debug = False
@@ -1318,6 +1341,10 @@ class ZergBot(sc2.BotAI):
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.HATCHERY:
             self.spread_inject_queens()
+    
+    async def on_building_construction_started(self, unit):
+        if unit.type_id == UnitTypeId.HATCHERY:
+            self.last_expansion_time = self.time
             
     async def on_upgrade_complete(self, upgrade):
         if upgrade == UpgradeId.BURROW:
@@ -1444,7 +1471,7 @@ class ZergBot(sc2.BotAI):
         
 run_game(maps.get("LightshadeLE"), [
         Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Protoss, Difficulty.CheatVision)
+        Computer(Race.Terran, Difficulty.VeryHard)
         ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane

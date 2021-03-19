@@ -26,6 +26,7 @@ from s2clientprotocol import sc2api_pb2 as sc_pb
 class ArmyComp:
     LING_BANE_HYDRA = 1
     ROACH_HYDRA = 2
+    LING_BANE_MUTA = 3
 
 class ArmyState:
     CONSOLIDATING = 1
@@ -253,7 +254,9 @@ class ZergBot(sc2.BotAI):
         self.burrow_movement_researched = False
         self.army_state = ArmyState.CONSOLIDATING
         
-        self.army_composition = ArmyComp.LING_BANE_HYDRA
+        self.army_composition = ArmyComp.LING_BANE_MUTA
+        
+        self.enemy_army_position = None
         
         
     
@@ -276,7 +279,7 @@ class ZergBot(sc2.BotAI):
             await self.make_expansions()
             await self.expand_tech()
             await self.micro()
-
+        
 
 ########################################
 ############# BUILD ORDER ##############
@@ -560,6 +563,26 @@ class ZergBot(sc2.BotAI):
                     self.hydralisk_need = supply * 0.25
                 else:
                     self.hydralisk_need = 30
+        if self.army_composition == ArmyComp.LING_BANE_MUTA:
+            #lings
+            if self.supply_workers + self.already_pending(DRONE) < 80:
+                if self.structures(BANELINGNEST).ready:
+                    if self.structures({SPIRE, GREATERSPIRE}):
+                        self.zergling_need == supply * .5
+                    else:
+                        self.zergling_need = supply
+                else:
+                    self.zergling_need = min(supply * 2, 20)
+            else:
+                self.zergling_need = 70
+            #banes
+            self.baneling_need = len(self.units(ZERGLING)) / 2
+            #mutas
+            if len(self.structures({SPIRE, GREATERSPIRE})) > 0:
+                if self.supply_workers + self.already_pending(DRONE) < 80:
+                    self.mutalisk_need = 10
+                else:
+                    self.mutalisk_need = 25
     
     async def update_building_need(self):
         # the enemy has the same number of bases as us
@@ -630,11 +653,15 @@ class ZergBot(sc2.BotAI):
         attacking_units = attacking_units.subgroup(unit for unit in attacking_units if unit not in lone_enemy_units)
         
         if len(attacking_units) >= 2:
-            army_location = attacking_units.center
-            height = self.get_terrain_z_height(army_location)
-            self._client.debug_sphere_out(Point3((army_location[0], army_location[1], height)), 4, color = Point3((255, 0, 0)))
+            self.enemy_army_position = attacking_units.center
+            height = self.get_terrain_z_height(self.enemy_army_position)
+            self._client.debug_sphere_out(Point3((self.enemy_army_position[0], self.enemy_army_position[1], height)), 4, color = Point3((255, 0, 0)))
+        else:
+            self.enemy_army_position == None
+            
         for unit in lone_enemy_units:
             self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 0, 255)))
+    
     
     
 ########################################
@@ -978,7 +1005,7 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.HYDRALISKDEN, near = pool_location, max_distance = 10)
-            if not await self.can_place(ROACHWARREN, self.build_location):
+            if not await self.can_place(HYDRALISKDEN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(HYDRALISKDEN, self.build_location):
             #print("invalid place")
@@ -988,8 +1015,53 @@ class ZergBot(sc2.BotAI):
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
             self.do(builder.build(HYDRALISKDEN, self.build_location))
-
-    
+            
+    async def build_infestation_pit(self):
+        if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
+            self.build_location = None
+            self.builder_drone = self.select_build_worker(self.start_location).tag
+            if len(self.units.tags_in([self.builder_drone])) == 0:
+                self.builder_drone = None
+                return False
+        elif self.build_location == None:
+            print("no place")
+            builder = self.units.tags_in([self.builder_drone])[0]
+            pool_location = self.structures(SPAWNINGPOOL)[0].position
+            self.build_location = await self.find_placement(UnitTypeId.INFESTATIONPIT, near = pool_location, max_distance = 10)
+            if not await self.can_place(INFESTATIONPIT, self.build_location):
+                self.build_location = None
+        #elif not await self.can_place(INFESTATIONPIT, self.build_location):
+            #print("invalid place")
+            #self.build_location = None
+        elif await self.can_place(INFESTATIONPIT, self.build_location):
+            builder = self.units.tags_in([self.builder_drone])[0]
+            height = self.get_terrain_z_height(self.build_location)
+            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
+            self.do(builder.build(INFESTATIONPIT, self.build_location))
+             
+    async def build_spire(self):
+        if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
+            self.build_location = None
+            self.builder_drone = self.select_build_worker(self.start_location).tag
+            if len(self.units.tags_in([self.builder_drone])) == 0:
+                self.builder_drone = None
+                return False
+        elif self.build_location == None:
+            print("no place")
+            builder = self.units.tags_in([self.builder_drone])[0]
+            pool_location = self.structures(SPAWNINGPOOL)[0].position
+            self.build_location = await self.find_placement(UnitTypeId.SPIRE, near = pool_location, max_distance = 10)
+            if not await self.can_place(SPIRE, self.build_location):
+                self.build_location = None
+        #elif not await self.can_place(SPIRE, self.build_location):
+            #print("invalid place")
+            #self.build_location = None
+        elif await self.can_place(SPIRE, self.build_location):
+            builder = self.units.tags_in([self.builder_drone])[0]
+            height = self.get_terrain_z_height(self.build_location)
+            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
+            self.do(builder.build(SPIRE, self.build_location))
+            
     async def build_gas(self):
         print("build gas??")
         if self.minerals >= 25:
@@ -1031,6 +1103,9 @@ class ZergBot(sc2.BotAI):
             elif len(self.units(HYDRALISK)) + self.already_pending(HYDRALISK) < self.hydralisk_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 50:
                     self.do(larva.train(HYDRALISK))
+            elif len(self.units(MUTALISK)) + self.already_pending(MUTALISK) < self.mutalisk_need and self.pending_upgrade != 2:
+                if self.minerals >= 100 and self.vespene >= 100:
+                    self.do(larva.train(MUTALISK))
             elif self.supply_workers + self.already_pending(DRONE) < self.drone_need:
                 if self.minerals >= 50:
                     if len(self.units(ZERGLING)) + self.already_pending(ZERGLING) < self.zergling_need:
@@ -1058,24 +1133,38 @@ class ZergBot(sc2.BotAI):
     async def expand_tech(self):
         if self.time >= 240:
             await self.build_extractor()
-            if self.army_composition == ArmyComp.LING_BANE_HYDRA:
+            if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
                 if self.can_afford(BANELINGNEST) and len(self.structures(BANELINGNEST)) == 0:
                     await self.build_baneling_nest()
             elif self.army_composition == ArmyComp.ROACH_HYDRA:
                 if self.can_afford(ROACHWARREN) and len(self.structures(ROACHWARREN)) == 0:
                     await self.build_roach_warren()
-                
         if self.supply_workers > 40 or self.time > 240:
             if len(self.structures(LAIR)) + len(self.structures(HIVE)) == 0 and not self.already_pending(LAIR):
-                hatch = self.structures({HATCHERY, LAIR, HIVE})[0]
+                hatch = self.structures(HATCHERY)[0]
                 for ability in await self.get_available_abilities(hatch):
                     if ability == AbilityId.UPGRADETOLAIR_LAIR:
                         self.do(hatch(AbilityId.UPGRADETOLAIR_LAIR))
+        if self.supply_workers > 80 or self.time > 480:
+            if len(self.structures(HIVE)) == 0 and not self.already_pending(HIVE):
+                hatch = self.structures(LAIR)[0]
+                for ability in await self.get_available_abilities(hatch):
+                    if ability == AbilityId.UPGRADETOHIVE_HIVE:
+                        self.do(hatch(AbilityId.UPGRADETOHIVE_HIVE))
         if len(self.structures(LAIR)) > 0 or self.already_pending(LAIR):
             if self.can_afford(EVOLUTIONCHAMBER) and len(self.structures(EVOLUTIONCHAMBER)) < 2:
                 await self.build_evolution_chamber()
-            if self.can_afford(HYDRALISKDEN) and len(self.structures(HYDRALISKDEN)) == 0:
-                await self.build_hydralisk_den()
+        if len(self.structures(LAIR)) > 0:
+            if  self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.ROACH_HYDRA:
+                if self.can_afford(HYDRALISKDEN) and len(self.structures(HYDRALISKDEN)) == 0:
+                    await self.build_hydralisk_den()
+                if self.can_afford(INFESTATIONPIT) and len(self.structures(INFESTATIONPIT)) == 0 and self.time > 300 and len(self.structures(HYDRALISKDEN)) > 0:
+                    await self.build_infestation_pit()
+            elif self.army_composition == ArmyComp.LING_BANE_MUTA:
+                if self.can_afford(SPIRE) and len(self.structures({SPIRE, GREATERSPIRE})) == 0:
+                    await self.build_spire()
+                if self.can_afford(INFESTATIONPIT) and len(self.structures(INFESTATIONPIT)) == 0 and self.time > 300 and len(self.structures({SPIRE, GREATERSPIRE})) > 0:
+                    await self.build_infestation_pit()
     
     async def build_extractor(self):
         if self.vespene > 500 or (self.time < 360 and len(self.structures(EXTRACTOR)) >= 2):
@@ -1107,7 +1196,7 @@ class ZergBot(sc2.BotAI):
     
     async def get_upgrades(self):
         # melee
-        if self.army_composition == ArmyComp.LING_BANE_HYDRA:
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
             if self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL1):
                 if self.can_afford(UpgradeId.ZERGMELEEWEAPONSLEVEL1):
                     evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
@@ -1197,7 +1286,7 @@ class ZergBot(sc2.BotAI):
                     self.pending_upgrade = 2
         
         # zergling
-        if self.army_composition == ArmyComp.LING_BANE_HYDRA:
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
             if self.structures(SPAWNINGPOOL).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED):
                 if self.can_afford(UpgradeId.ZERGLINGMOVEMENTSPEED):
                     pool = self.structures(SPAWNINGPOOL).ready.idle.random
@@ -1217,7 +1306,7 @@ class ZergBot(sc2.BotAI):
                 else:
                     self.pending_upgrade = 2
         # baneling
-        if self.army_composition == ArmyComp.LING_BANE_HYDRA:
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
             if self.structures(BANELINGNEST).ready.idle and not self.already_pending_upgrade(UpgradeId.CENTRIFICALHOOKS) and len(self.structures({LAIR, HIVE})) > 0:
                 if self.can_afford(UpgradeId.CENTRIFICALHOOKS):
                     bane = self.structures(BANELINGNEST).ready.idle.random
@@ -1269,7 +1358,36 @@ class ZergBot(sc2.BotAI):
                     self.pending_upgrade = 1
                 else:
                     self.pending_upgrade = 2
-
+        
+        # spire
+        if self.army_composition == ArmyComp.LING_BANE_MUTA:
+            if self.structures({SPIRE, GREATERSPIRE}).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGFLYERWEAPONSLEVEL1):
+                if self.can_afford(UpgradeId.ZERGFLYERWEAPONSLEVEL1):
+                    spire = self.structures({SPIRE, GREATERSPIRE}).ready.idle.random
+                    self.do(spire(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL1))
+                    self.pending_upgrade = 0
+                elif self.calculate_cost(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL1).minerals > self.minerals:
+                    self.pending_upgrade = 1
+                else:
+                    self.pending_upgrade = 2
+            elif self.structures({SPIRE, GREATERSPIRE}).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGFLYERWEAPONSLEVEL2) and len(self.structures({LAIR, HIVE})) > 0:
+                if self.can_afford(UpgradeId.ZERGFLYERWEAPONSLEVEL2):
+                    spire = self.structures({SPIRE, GREATERSPIRE}).ready.idle.random
+                    self.do(spire(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL2))
+                    self.pending_upgrade = 0
+                elif self.calculate_cost(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL2).minerals > self.minerals:
+                    self.pending_upgrade = 1
+                else:
+                    self.pending_upgrade = 2
+            elif self.structures({SPIRE, GREATERSPIRE}).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGFLYERWEAPONSLEVEL3) and len(self.structures(HIVE)) > 0:
+                if self.can_afford(UpgradeId.ZERGFLYERWEAPONSLEVEL3):
+                    spire = self.structures({SPIRE, GREATERSPIRE}).ready.idle.random
+                    self.do(spire(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL3))
+                    self.pending_upgrade = 0
+                elif self.calculate_cost(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL3).minerals > self.minerals:
+                    self.pending_upgrade = 1
+                else:
+                    self.pending_upgrade = 2
 
         # hatchery
         if self.structures({HATCHERY, LAIR, HIVE}).ready.idle and not self.already_pending_upgrade(UpgradeId.OVERLORDSPEED) and self.time > 300:
@@ -1310,7 +1428,11 @@ class ZergBot(sc2.BotAI):
                 print("ling need: " + str(self.zergling_need))
                 print("bane need: " + str(self.baneling_need))
                 print("hydra need: " + str(self.hydralisk_need))
-            if self.army_composition == ArmyComp.ROACH_HYDRA:
+            elif self.army_composition == ArmyComp.LING_BANE_MUTA:
+                print("ling need: " + str(self.zergling_need))
+                print("bane need: " + str(self.baneling_need))
+                print("muta need: " + str(self.mutalisk_need))
+            elif self.army_composition == ArmyComp.ROACH_HYDRA:
                 print("roach need: " + str(self.roach_need))
                 print("hydra need: " + str(self.hydralisk_need))
             if self.expansion_need == 100:

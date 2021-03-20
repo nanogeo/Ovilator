@@ -33,6 +33,13 @@ class ArmyState:
     RALLYING = 2
     ATTACKING = 3
     PROTECTING = 4
+
+class MutaGroupState:
+    CONSOLIDATING = 1
+    MOVING_TO_RALLY = 2
+    MOVING_TO_ATTACK = 3
+    ATTACKING = 4
+    RETREATING = 5
     
     
 
@@ -258,6 +265,28 @@ class ZergBot(sc2.BotAI):
         
         self.enemy_army_position = None
         
+        self.muta_attack_positions = [(57, 41),
+                                    (35, 102),
+                                    (61, 113),
+                                    (32, 69),
+                                    (32, 38),
+                                    (76, 139),
+                                    (37, 134)]
+        
+        self.muta_rally_points = [(24, 16),
+                                (106, 148),
+                                (24, 86),
+                                (63, 129),
+                                (64, 148),
+                                (24, 54),
+                                (76, 16),
+                                (24, 148),
+                                (24, 116)]
+        self.muta_group_tags = []
+        self.muta_group_state = MutaGroupState.CONSOLIDATING
+        self.muta_rally_point_attack = None
+        self.muta_rally_point_retreat = None
+        self.muta_attack_point = None
         
     
     async def on_step(self, iteration):
@@ -719,6 +748,8 @@ class ZergBot(sc2.BotAI):
         return locations
     
     async def update_creep(self):
+        if self.time > 600:
+            return
         if not self.updated_creep and int(self.time) % 2 == 0:
             self.updated_creep = True
             self.creep_spread_to = self.find_creep_spots()
@@ -775,23 +806,25 @@ class ZergBot(sc2.BotAI):
             for hatch in self.townhalls:
                 if enemy.distance_to(hatch) < 20:
                     need_to_protect = enemy.position
+        if self.army_composition == ArmyComp.LING_BANE_MUTA:
+            await self.micro_mutas()
         
         if self.army_state == ArmyState.CONSOLIDATING:
             if need_to_protect:
                 self.army_state = ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]):
                     self.do(unit.attack(need_to_protect))
             # move all units to the consolidation point
-            for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.zergling_scout_tags):
+            for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.zergling_scout_tags + self.muta_group_tags):
                 if unit.distance_to(Point2(self.convert_location(self.army_spot))) > 10 and unit.is_idle:
                     self.do(unit.move(Point2(self.convert_location(self.army_spot))))
             # if we have more than 90 army supply ready then go to the rally point
-            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.zergling_scout_tags)) >= 90:
+            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.zergling_scout_tags)) >= 90:
                 self.army_state = ArmyState.RALLYING
                 await self.find_attack_and_rally_points()
                 print("rally to " + str(self.rally_point))
                 self.army_unit_tags = []
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.zergling_scout_tags):
                     self.army_unit_tags.append(unit.tag)
                     self.do(unit.attack(Point2(self.rally_point)))
         elif self.army_state == ArmyState.RALLYING:
@@ -799,7 +832,7 @@ class ZergBot(sc2.BotAI):
             # TODO determine if we need to defend and how much with
             if need_to_protect:
                 self.army_state = ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.zergling_scout_tags):
                     self.do(unit.attack(need_to_protect))
             # is everyone in position?
             for unit in self.units.tags_in(self.army_unit_tags):
@@ -822,7 +855,7 @@ class ZergBot(sc2.BotAI):
                     enemy_supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
             # if we have 2x more army supply then flood new units
             if self.supply_army > enemy_supply * 2:
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.army_unit_tags + self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.army_unit_tags + self.zergling_scout_tags):
                     self.army_unit_tags.append(unit.tag)
                     self.do(unit.attack(Point2(self.attack_position)))
                     self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
@@ -917,8 +950,146 @@ class ZergBot(sc2.BotAI):
             self.do(roach(AbilityId.BURROWUP_ROACH))
         elif roach.is_burrowed:
             self.do(roach.move(Point2(self.rally_point)))
+            
+    async def micro_mutas(self):
+        if len(self.muta_group_tags) == 0:
+            self.muta_group_state = MutaGroupState.CONSOLIDATING
+            for muta in self.units(MUTALISK):
+                self.muta_group_tags.append(muta.tag)
+            return
+        muta_group = self.units.tags_in(self.muta_group_tags)
+        center = muta_group.center
+        """
+        for muta in self.units.tags_in(self.muta_group_tags):
+            if muta.distance_to(center) > 2:
+                self.do(muta.move(center))
+        """
+        if self.muta_group_state == MutaGroupState.CONSOLIDATING:
+            # consolidate mutas
+            for muta in muta_group:
+                if muta.distance_to(self.convert_location(self.army_spot)) > 2:
+                    self.do(muta.move(self.convert_location(self.army_spot)))
+            if len(muta_group) >= 10:
+                ready = True
+                for muta in muta_group:
+                    if muta.health_percentage < .9 or muta.distance_to(self.convert_location(self.army_spot)) > 2:
+                        ready = False
+                if ready:
+                    self.find_muta_rally_and_attack_points()
+                    self.muta_group_state = MutaGroupState.MOVING_TO_RALLY
+                    for muta in muta_group:
+                        self.do(muta.move(self.muta_rally_point_attack))
+                else:
+                    # add new mutas
+                    for muta in self.units(MUTALISK).tags_not_in(self.muta_group_tags):
+                        self.muta_group_tags.append(muta.tag)
+            else:
+                # add new mutas
+                for muta in self.units(MUTALISK).tags_not_in(self.muta_group_tags):
+                    self.muta_group_tags.append(muta.tag)
+        elif self.muta_group_state == MutaGroupState.MOVING_TO_RALLY:
+            if center.distance_to(self.muta_rally_point_attack) < 2:
+                if self.muta_attack_point:
+                    self.muta_group_state = MutaGroupState.MOVING_TO_ATTACK
+                    for muta in muta_group:
+                        self.do(muta.move(self.muta_attack_point))
+                else:
+                    self.muta_group_state = MutaGroupState.RETREATING
+                    for muta in muta_group:
+                        self.do(muta.move(Point2(self.army_spot)))
+        elif self.muta_group_state == MutaGroupState.MOVING_TO_ATTACK:
+            if center.distance_to(self.muta_attack_point) < 2:
+                self.muta_group_state = MutaGroupState.ATTACKING
+        elif self.muta_group_state == MutaGroupState.ATTACKING:
+            # when the workers get away, move on
+            if len(self.enemy_units({SCV, PROBE, DRONE})) == 0 or self.muta_attack_point.distance_to_closest(self.enemy_units({SCV, PROBE, DRONE})) > 6:
+                # TODO if mutas are hurt, retreat them to heal up
+                self.find_muta_rally_and_attack_points()
+                for muta in muta_group:
+                    self.do(muta.move(self.muta_rally_point_attack))
+                self.muta_group_state = MutaGroupState.MOVING_TO_RALLY
+            else:
+                # attack workers
+                for muta in muta_group:
+                    self.do(muta.attack(self.enemy_units({SCV, PROBE, DRONE}).closest_to(self.muta_attack_point)))
+        elif self.muta_group_state == MutaGroupState.RETREATING:
+            if center.distance_to(Point2(self.army_spot)) < 2:
+                # TODO add new mutas to group
+                self.muta_group_state = MutaGroupState.CONSOLIDATING
 
-
+    def find_muta_rally_and_attack_points(self):
+        print("muta find new rally and attack points")
+        # new attack point
+        if self.muta_attack_point == None:
+            if self.enemy_expos[5]:
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[0])
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[6])
+            elif self.enemy_expos[4]:
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[5])
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[1])
+            elif self.enemy_expos[3]:
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[4])
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[0])
+            elif self.enemy_expos[2]:
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[2])
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[4])
+            elif self.enemy_expos[1]:
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[3])
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[5])
+            elif self.enemy_expos[0]:
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[1])
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[2])
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[0]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[6]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[0])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[4])
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[0]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[6])
+                self.muta_attack_point = None
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[4]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[0]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[5])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[3])
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[5]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[0])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[0])
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[3]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[5]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[2])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[1])
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[2]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[5])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[4])
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[1]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[2]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[8])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[6])
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[8]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[2])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[3])
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[6]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[8]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[4])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[2])
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[4]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[8])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[1])
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[2]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[4]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[3])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[5])
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[3]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[4])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[6])
+        elif self.muta_attack_point == self.convert_location(self.muta_attack_positions[5]):
+            if self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[3]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[1])
+                self.muta_attack_point = None
+            elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[1]):
+                self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[3])
+                self.muta_attack_point = self.convert_location(self.muta_attack_positions[2])
+                
+    
 ########################################
 ################# MACRO ################
 ########################################
@@ -1431,7 +1602,8 @@ class ZergBot(sc2.BotAI):
             elif self.army_composition == ArmyComp.LING_BANE_MUTA:
                 print("ling need: " + str(self.zergling_need))
                 print("bane need: " + str(self.baneling_need))
-                print("muta need: " + str(self.mutalisk_need))
+                print("muta in group: " + str(len(self.muta_group_tags)))
+                print("muta status: " + str(self.muta_group_state))
             elif self.army_composition == ArmyComp.ROACH_HYDRA:
                 print("roach need: " + str(self.roach_need))
                 print("hydra need: " + str(self.hydralisk_need))
@@ -1439,11 +1611,12 @@ class ZergBot(sc2.BotAI):
                 print("need to expand")
             else:
                  print("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
-                 print("last expo: " + str(self.last_expansion_time + 180) + " time " + str(self.time))
+                 print("next expo: " + str(self.last_expansion_time + 180) + " time " + str(self.time))
             print("END DEBUG")
         elif self.has_debug and round(self.time) % self.debug_interval == 1:
             self.has_debug = False
-        
+    
+    
 
     async def on_unit_created(self, unit):
         if unit.type_id == UnitTypeId.QUEEN:
@@ -1489,11 +1662,14 @@ class ZergBot(sc2.BotAI):
             if self.zergling_scout_tags[i] == unit_tag:
                 self.zergling_scout_tags[i] = None
                 break
+        for muta in self.muta_group_tags:
+            if unit_tag == muta:
+                self.muta_group_tags.remove(muta)
 
 
     def convert_location(self, location):
         if self.start_location == Point2((143.5, 32.5)):
-            return location
+            return Point2(location)
         else:
             return Point2((143.5, 32.5)) - Point2(location) + Point2((40.5, 131.5))
 

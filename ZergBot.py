@@ -9,6 +9,7 @@ import sc2
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
 from sc2.unit import Unit
+from sc2.units import Units
 from sc2.position import Point2, Point3
 from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK
 from sc2.constants import ROACHBURROWED
@@ -670,6 +671,58 @@ class ZergBot(sc2.BotAI):
         return new_expos
     
     async def track_enemy_army_position(self):
+        if len(self.enemy_units.exclude_type({SCV, DRONE, PROBE})) < 0:
+            return
+        lone_enemy_units = Units([], self)
+        grouped_enemy_units = self.enemy_units.exclude_type({SCV, DRONE, PROBE})
+        
+        i = 1
+        n = len(grouped_enemy_units)
+        while i < n:
+            unit = grouped_enemy_units[i]
+            if len(grouped_enemy_units.closer_than(3, unit)) > 1:
+                # if there are units closer than 3 then move on
+                i += 1
+            else:
+                # if not then remove it from the list and add it to the loners list
+                lone_enemy_units.append(unit)
+                grouped_enemy_units.remove(unit)
+                n -= 1
+        
+        for unit in lone_enemy_units:
+            self._client.debug_sphere_out(unit.position3d, 1, color = Point3((255, 0, 0)))
+        
+        if len(grouped_enemy_units) > 0:
+            enemy_unit_groups = []
+            group_num = 0
+            while len(grouped_enemy_units) > 0:
+                # grab the first unit and add it to a new group
+                unit = grouped_enemy_units[0]
+                grouped_enemy_units.remove(unit)
+                enemy_unit_groups.append(Units([unit], self))
+                i = 0
+                n = len(enemy_unit_groups[group_num])
+                while i < n:
+                    # test each unit in a group and add units close to it to the group
+                    test_unit = enemy_unit_groups[group_num][i]
+                    close_units = grouped_enemy_units.closer_than(5, test_unit)
+                    if len(close_units) > 0:
+                        for close_unit in close_units:
+                            # when a unit is added to a group remove it from the origional list
+                            enemy_unit_groups[group_num].append(close_unit)
+                            grouped_enemy_units.remove(close_unit)
+                            n += 1
+                    i += 1
+                group_num += 1
+            
+            # display green sphere over top each group
+            for group in enemy_unit_groups:
+                pos = group.center
+                height = self.get_terrain_z_height(pos)
+                self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 4, color = Point3((0, 255, 0)))
+            
+        
+        """
         attacking_units = self.enemy_units.subgroup(unit for unit in self.enemy_units if self.has_creep(unit.position))
         lone_enemy_units = []
         if len(attacking_units) < 2:
@@ -690,6 +743,7 @@ class ZergBot(sc2.BotAI):
             
         for unit in lone_enemy_units:
             self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 0, 255)))
+        """
     
     
     
@@ -1774,3 +1828,4 @@ run_game(maps.get("LightshadeLE"), [
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
 
+# myunits = Units([], self)

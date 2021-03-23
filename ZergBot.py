@@ -24,6 +24,10 @@ from sc2.ids.buff_id import BuffId
 from s2clientprotocol import raw_pb2 as raw_pb
 from s2clientprotocol import sc2api_pb2 as sc_pb
 
+from dijkstra import Graph
+from dijkstra import DijkstraSPF
+
+
 class ArmyComp:
     LING_BANE_HYDRA = 1
     ROACH_HYDRA = 2
@@ -217,18 +221,9 @@ class ZergBot(sc2.BotAI):
         
         self.enemy_unit_tags = {}
         self.enemy_unit_numbers = {}
-        self.rally_points = [(114, 131),
-                            (84, 117),
-                            (40, 70),
-                            (68, 68),
-                            (101, 106),
-                            (60, 46),
-                            (93, 123),
-                            (80, 81)]
-        self.army_spot = (127, 81)
-        self.attack_position = None
-        self.rally_point = None
-        self.army_unit_tags = []
+        self.enemy_army_position = None
+
+# scouting
         self.zergling_scout_tags = [None]*6
         """[(108, 81),0
             (51, 57),1
@@ -258,14 +253,84 @@ class ZergBot(sc2.BotAI):
                                [(91, 97), (105, 109), (72, 96)],
                                [(118, 92), (128, 122), (113, 118), (64, 107)],
                                [(149, 95), (150, 126), (129, 141), (81, 136)]]
+        
+# army stuff
+        self.rally_points = [(114, 131),
+                            (84, 117),
+                            (40, 70),
+                            (68, 68),
+                            (101, 106),
+                            (60, 46),
+                            (93, 123),
+                            (80, 81)]
+        self.army_positions = [Point2((132, 78)),
+                                Point2((119, 94)),
+                                Point2((146, 94)),
+                                Point2((132, 141)),
+                                Point2((54, 23)),
+                                Point2((92, 125)),
+                                Point2((72, 97)),
+                                Point2((125, 119)),
+                                Point2((111, 63)),
+                                Point2((97, 48)),
+                                Point2((82, 113)),
+                                Point2((86, 61)),
+                                Point2((34, 39)),
+                                Point2((112, 129)),
+                                Point2((50, 57)),
+                                Point2((106, 81)),
+                                Point2((99, 104)),
+                                Point2((66, 72)),
+                                Point2((150, 127)),
+                                Point2((79, 82)),
+                                Point2((73, 35)),
+                                Point2((134, 106)),
+                                Point2((61, 44)),
+                                Point2((91, 33))]
+        self.army_position_links = [[1, 2],
+                                    [0, 15, 16, 21],
+                                    [0, 21],
+                                    [13, 18],
+                                    [12, 20],
+                                    [10, 13, 16],
+                                    [10, 17, 19],
+                                    [13, 21],
+                                    [9, 15],
+                                    [8, 11, 23],
+                                    [5, 6],
+                                    [9, 17, 19],
+                                    [4, 14],
+                                    [3, 5, 7],
+                                    [12, 17, 22],
+                                    [1, 8, 16, 19],
+                                    [1, 5, 10, 15],
+                                    [6, 11, 14, 19],
+                                    [3, 21],
+                                    [6, 11, 15, 17],
+                                    [4, 22, 23],
+                                    [1, 2, 7, 18],
+                                    [14, 20],
+                                    [9, 20]]
+        self.defense_points = [[2, 5, 6, 7],    # nat
+                               [7, 14],         # inline 3rd
+                               [2, 5],          # tri 3rd
+                               [10, 13],        # inline 5th
+                               [5, 9],          # tri 5th
+                               [0]]             # middle
+        self.map_graph = Graph()
+        self.army_spot = (127, 81)
+        self.attack_position = None
+        self.rally_point = None
+        self.army_unit_tags = []
+        
         self.burrow_researched = False
         self.burrow_movement_researched = False
         self.army_state = ArmyState.CONSOLIDATING
         
-        self.army_composition = ArmyComp.LING_BANE_MUTA
+        self.army_composition = ArmyComp.LING_BANE_HYDRA
         
-        self.enemy_army_position = None
-        
+
+# muta micro
         self.muta_attack_positions = [(57, 41),
                                     (35, 102),
                                     (61, 113),
@@ -273,7 +338,6 @@ class ZergBot(sc2.BotAI):
                                     (32, 38),
                                     (76, 139),
                                     (37, 134)]
-        
         self.muta_rally_points = [(24, 16),
                                 (106, 148),
                                 (24, 86),
@@ -715,13 +779,39 @@ class ZergBot(sc2.BotAI):
                     i += 1
                 group_num += 1
             
+            expo_numbers = [7, 3, 9, 6, 2, 4]
             # display green sphere over top each group
             for group in enemy_unit_groups:
                 pos = group.center
                 height = self.get_terrain_z_height(pos)
                 self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 4, color = Point3((0, 255, 0)))
-            
-        
+                enemy_bases_locations = []
+                for i in range(0, len(self.enemy_expos)):
+                    if self.enemy_expos[i] > 0:
+                        enemy_bases_locations.append(self.convert_location(self.expos[expo_numbers[i]]))
+                closest_position = pos.closest(self.army_positions + enemy_bases_locations)
+                if closest_position in enemy_bases_locations:
+                    # enemy is on the defensive
+                    print("enemy army on defense")
+                    break
+                dijkstras_graph = DijkstraSPF(self.map_graph, self.army_positions.index(closest_position))
+                print("%-5s %-5s" % ("label", "distance"))
+                for u in [0, 2, 8, 9, 23]:
+                    print(str(u) + "    " + str(dijkstras_graph.get_distance(u)))
+                closest_point = min([0, 2, 8, 9, 23], key = lambda k: dijkstras_graph.get_distance(k))
+                print("ea pos: " + str(self.army_positions.index(closest_position)))
+                print("closest point: " + str(closest_point))
+                most_likely_path = dijkstras_graph.get_path(closest_point)
+                for i in range(0, len(most_likely_path) - 1):
+                    h1 = self.get_terrain_z_height(Point2(self.army_positions[most_likely_path[i]])) + .1
+                    h2 = self.get_terrain_z_height(Point2(self.army_positions[most_likely_path[i + 1]])) + .1
+                    pos1 = Point3((self.army_positions[most_likely_path[i]][0], self.army_positions[most_likely_path[i]][1], h1))
+                    pos2 = Point3((self.army_positions[most_likely_path[i + 1]][0], self.army_positions[most_likely_path[i + 1]][1], h2))
+                    self._client.debug_sphere_out(pos1, 4, color = Point3((255, 0, 255)))
+                    self._client.debug_sphere_out(pos2, 4, color = Point3((255, 0, 255)))
+                    self._client.debug_line_out(pos1, pos2, color = Point3((255, 0, 255)))
+                
+        # 0, 2, 7, 8, 9, 23
         """
         attacking_units = self.enemy_units.subgroup(unit for unit in self.enemy_units if self.has_creep(unit.position))
         lone_enemy_units = []
@@ -1645,6 +1735,18 @@ class ZergBot(sc2.BotAI):
 ########################################
     
     async def display_debug_info(self):
+        """for i in range(0, len(self.army_positions)):
+            pos = Point2(self.army_positions[i])
+            height = self.get_terrain_z_height(pos)
+            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 0, 255)))
+            self._client.debug_text_world("pos " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 0, 255)), 16)
+            for j in range(0, len(self.army_position_links[i])):
+                h1 = self.get_terrain_z_height(Point2(self.army_positions[i])) + .1
+                h2 = self.get_terrain_z_height(Point2(self.army_positions[self.army_position_links[i][j]])) + .1
+                pos1 = Point3((self.army_positions[i][0], self.army_positions[i][1], h1))
+                pos2 = Point3((self.army_positions[self.army_position_links[i][j]][0], self.army_positions[self.army_position_links[i][j]][1], h2))
+                self._client.debug_line_out(pos1, pos2, color = Point3((255, 0, 255)))"""
+        
         if not self.has_debug and round(self.time) % self.debug_interval == 0:
             self.has_debug = True
             print(str(self.time_formatted))
@@ -1670,7 +1772,16 @@ class ZergBot(sc2.BotAI):
         elif self.has_debug and round(self.time) % self.debug_interval == 1:
             self.has_debug = False
     
+    def set_up_map_graph(self):
+        for index, point in enumerate(self.army_positions):
+            self.army_positions[index] = self.convert_location(point)
+        for i in range(0, len(self.army_position_links)):
+            for j in range(0, len(self.army_position_links[i])):
+                self.map_graph.add_edge(i, self.army_position_links[i][j], Point2(self.army_positions[i]).distance_to(Point2(self.army_positions[self.army_position_links[i][j]])))
+        
     
+    async def on_start(self):
+        self.set_up_map_graph()
 
     async def on_unit_created(self, unit):
         if unit.type_id == UnitTypeId.QUEEN:

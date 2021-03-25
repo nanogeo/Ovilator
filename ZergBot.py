@@ -11,9 +11,9 @@ from sc2.player import Bot, Computer
 from sc2.unit import Unit
 from sc2.units import Units
 from sc2.position import Point2, Point3
-from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK
+from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK, LOCUSTMP, LOCUSTMPFLYING
 from sc2.constants import ROACHBURROWED
-from sc2.constants import HATCHERY, LAIR, HIVE, EXTRACTOR, SPAWNINGPOOL, ROACHWARREN, HYDRALISKDEN, LURKERDEN, SPIRE, GREATERSPIRE, EVOLUTIONCHAMBER, SPORECRAWLER, SPINECRAWLER, INFESTATIONPIT, BANELINGNEST, CREEPTUMOR, NYDUSNETWORK, ULTRALISKCAVERN, CREEPTUMORBURROWED, CREEPTUMORQUEEN
+from sc2.constants import HATCHERY, LAIR, HIVE, EXTRACTOR, SPAWNINGPOOL, ROACHWARREN, HYDRALISKDEN, LURKERDEN, SPIRE, GREATERSPIRE, EVOLUTIONCHAMBER, SPORECRAWLER, SPINECRAWLER, INFESTATIONPIT, BANELINGNEST, CREEPTUMOR, NYDUSNETWORK, NYDUSCANAL, ULTRALISKCAVERN, CREEPTUMORBURROWED, CREEPTUMORQUEEN
 from sc2.constants import PROBE, SCV
 from sc2.constants import NEXUS
 from sc2.constants import COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS
@@ -26,12 +26,14 @@ from s2clientprotocol import sc2api_pb2 as sc_pb
 
 from dijkstra import Graph
 from dijkstra import DijkstraSPF
+import random
 
 
 class ArmyComp:
     LING_BANE_HYDRA = 1
     ROACH_HYDRA = 2
     LING_BANE_MUTA = 3
+    ROACH_SWARM_HOST = 4
 
 class ArmyState:
     CONSOLIDATING = 1
@@ -39,12 +41,23 @@ class ArmyState:
     ATTACKING = 3
     PROTECTING = 4
 
+class EnemyArmyState:
+    DEFENDING = 1
+    PREPARING_ATTACK = 2
+    MOVING_TO_ATTACK = 3
+    
 class MutaGroupState:
     CONSOLIDATING = 1
     MOVING_TO_RALLY = 2
     MOVING_TO_ATTACK = 3
     ATTACKING = 4
     RETREATING = 5
+    
+class SwarmHostState:
+    WAITING = 1
+    UNLOADING = 2
+
+
     
     
 
@@ -327,7 +340,7 @@ class ZergBot(sc2.BotAI):
         self.burrow_movement_researched = False
         self.army_state = ArmyState.CONSOLIDATING
         
-        self.army_composition = ArmyComp.LING_BANE_HYDRA
+        self.army_composition = ArmyComp.ROACH_SWARM_HOST
         
 
 # muta micro
@@ -352,6 +365,23 @@ class ZergBot(sc2.BotAI):
         self.muta_rally_point_attack = None
         self.muta_rally_point_retreat = None
         self.muta_attack_point = None
+        
+# swarm hosts
+        self.nydus_positions = [(30.5, 77.5),
+                                (75.5, 130.5),
+                                (103.5, 111.5),
+                                (33.5, 48.5),
+                                (109.5, 135.5),
+                                (57.5, 44.5),
+                                (83.5, 85.5),
+                                (60.5, 132.5),
+                                (42.5, 141.5),
+                                (46.5, 23.5),
+                                (88.5, 98.5),
+                                (74.5, 55.5)]
+        self.last_locust_wave = 0
+        self.swarm_host_state = SwarmHostState.WAITING
+        self.swarm_host_nydus = None
         
     
     async def on_step(self, iteration):
@@ -657,6 +687,25 @@ class ZergBot(sc2.BotAI):
                     self.hydralisk_need = supply * 0.25
                 else:
                     self.hydralisk_need = 30
+        elif self.army_composition == ArmyComp.ROACH_SWARM_HOST:
+            #roaches
+            if len(self.structures(ROACHWARREN)) > 0:
+                self.zergling_need = 0
+                if self.supply_workers + self.already_pending(DRONE) < 80:
+                    if len(self.structures(HYDRALISKDEN)) > 0:
+                        self.roach_need = supply * 0.25
+                    else:
+                        self.roach_need = min(30, supply * 0.5)
+                else:
+                    self.roach_need = 40
+            elif supply > 10:
+                self.zergling_need = supply * .5
+            #swarm hosts
+            if len(self.structures(INFESTATIONPIT)) > 0 and (len(self.structures(NYDUSNETWORK)) > 0 or self.already_pending(NYDUSNETWORK)):
+                if self.supply_workers + self.already_pending(DRONE) < 60:
+                    self.swarmhost_need = 10
+                else:
+                    self.swarmhost_need = 14
         if self.army_composition == ArmyComp.LING_BANE_MUTA:
             #lings
             if self.supply_workers + self.already_pending(DRONE) < 80:
@@ -792,15 +841,15 @@ class ZergBot(sc2.BotAI):
                 closest_position = pos.closest(self.army_positions + enemy_bases_locations)
                 if closest_position in enemy_bases_locations:
                     # enemy is on the defensive
-                    print("enemy army on defense")
+                    #print("enemy army on defense")
                     break
                 dijkstras_graph = DijkstraSPF(self.map_graph, self.army_positions.index(closest_position))
-                print("%-5s %-5s" % ("label", "distance"))
-                for u in [0, 2, 8, 9, 23]:
-                    print(str(u) + "    " + str(dijkstras_graph.get_distance(u)))
+                #print("%-5s %-5s" % ("label", "distance"))
+                #for u in [0, 2, 8, 9, 23]:
+                    #print(str(u) + "    " + str(dijkstras_graph.get_distance(u)))
                 closest_point = min([0, 2, 8, 9, 23], key = lambda k: dijkstras_graph.get_distance(k))
-                print("ea pos: " + str(self.army_positions.index(closest_position)))
-                print("closest point: " + str(closest_point))
+                #print("ea pos: " + str(self.army_positions.index(closest_position)))
+                #print("closest point: " + str(closest_point))
                 most_likely_path = dijkstras_graph.get_path(closest_point)
                 for i in range(0, len(most_likely_path) - 1):
                     h1 = self.get_terrain_z_height(Point2(self.army_positions[most_likely_path[i]])) + .1
@@ -940,6 +989,72 @@ class ZergBot(sc2.BotAI):
                     break
 
 ########################################
+################# NYDUS ################
+########################################
+
+    async def find_nydus_spot(self):
+        possible_locations = []
+        if self.enemy_expos[5]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[11])) and self.is_visible(self.convert_location(self.nydus_positions[11])):
+                possible_locations.append(self.convert_location(self.nydus_positions[11]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[9])) and self.is_visible(self.convert_location(self.nydus_positions[9])):
+                possible_locations.append(self.convert_location(self.nydus_positions[9]))
+        if self.enemy_expos[4]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[4])) and self.is_visible(self.convert_location(self.nydus_positions[4])):
+                possible_locations.append(self.convert_location(self.nydus_positions[4]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[2])) and self.is_visible(self.convert_location(self.nydus_positions[2])):
+                possible_locations.append(self.convert_location(self.nydus_positions[2]))
+        if self.enemy_expos[3]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[5])) and self.is_visible(self.convert_location(self.nydus_positions[5])):
+                possible_locations.append(self.convert_location(self.nydus_positions[5]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[9])) and self.is_visible(self.convert_location(self.nydus_positions[9])):
+                possible_locations.append(self.convert_location(self.nydus_positions[9]))
+        if self.enemy_expos[2]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[1])) and self.is_visible(self.convert_location(self.nydus_positions[1])):
+                possible_locations.append(self.convert_location(self.nydus_positions[1]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[2])) and self.is_visible(self.convert_location(self.nydus_positions[2])):
+                possible_locations.append(self.convert_location(self.nydus_positions[2]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[6])) and self.is_visible(self.convert_location(self.nydus_positions[6])):
+                possible_locations.append(self.convert_location(self.nydus_positions[6]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[10])) and self.is_visible(self.convert_location(self.nydus_positions[10])):
+                possible_locations.append(self.convert_location(self.nydus_positions[10]))
+        if self.enemy_expos[1]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[3])) and self.is_visible(self.convert_location(self.nydus_positions[3])):
+                possible_locations.append(self.convert_location(self.nydus_positions[3]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[5])) and self.is_visible(self.convert_location(self.nydus_positions[5])):
+                possible_locations.append(self.convert_location(self.nydus_positions[5]))
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[11])) and self.is_visible(self.convert_location(self.nydus_positions[11])):
+                possible_locations.append(self.convert_location(self.nydus_positions[11]))
+        if self.enemy_expos[0]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[0])) and self.is_visible(self.convert_location(self.nydus_positions[0])):
+                possible_locations.append(self.convert_location(self.nydus_positions[0]))
+        if not self.enemy_expos[2] and not self.enemy_expos[4]:
+            if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[1])) and self.is_visible(self.convert_location(self.nydus_positions[1])):
+                possible_locations.append(self.convert_location(self.nydus_positions[1]))
+        return possible_locations
+    
+    async def spawn_nydus_worm(self):
+        possible_spots = await self.find_nydus_spot()
+        current_nydus_worms = self.structures(NYDUSCANAL)
+        if len(current_nydus_worms) == 0:
+            for nydus in self.structures(NYDUSNETWORK).ready:
+                if AbilityId.BUILD_NYDUSWORM in await self.get_available_abilities(nydus):
+                    if len(possible_spots) > 0:
+                        spot = random.choice(possible_spots)
+                        print("first nydus at " + str(spot))
+                        self.do(nydus(AbilityId.BUILD_NYDUSWORM, spot))
+        else:
+            for nydus in self.structures(NYDUSNETWORK).ready:
+                if AbilityId.BUILD_NYDUSWORM in await self.get_available_abilities(nydus):
+                    if len(possible_spots) > 0:
+                        spot = sorted(possible_spots, key = lambda u: u.position.distance_to_closest(current_nydus_worms))[len(possible_spots) - 1]
+                        possible_spots.remove(spot)
+                        print("new nydus at " + str(spot))
+                        self.do(nydus(AbilityId.BUILD_NYDUSWORM, spot))
+                    
+
+
+########################################
 ################# MICRO ################
 ########################################
 
@@ -952,23 +1067,27 @@ class ZergBot(sc2.BotAI):
                     need_to_protect = enemy.position
         if self.army_composition == ArmyComp.LING_BANE_MUTA:
             await self.micro_mutas()
-        
+        if self.army_composition == ArmyComp.ROACH_SWARM_HOST:
+            await self.spawn_nydus_worm()
+            await self.micro_swarm_hosts()
+            await self.micro_locusts()
+            
         if self.army_state == ArmyState.CONSOLIDATING:
             if need_to_protect:
                 self.army_state = ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]):
                     self.do(unit.attack(need_to_protect))
             # move all units to the consolidation point
-            for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD]).tags_not_in(self.zergling_scout_tags + self.muta_group_tags):
+            for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags + self.muta_group_tags):
                 if unit.distance_to(Point2(self.convert_location(self.army_spot))) > 10 and unit.is_idle:
                     self.do(unit.move(Point2(self.convert_location(self.army_spot))))
             # if we have more than 90 army supply ready then go to the rally point
-            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.zergling_scout_tags)) >= 90:
+            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags)) >= 90:
                 self.army_state = ArmyState.RALLYING
                 await self.find_attack_and_rally_points()
                 print("rally to " + str(self.rally_point))
                 self.army_unit_tags = []
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
                     self.army_unit_tags.append(unit.tag)
                     self.do(unit.attack(Point2(self.rally_point)))
         elif self.army_state == ArmyState.RALLYING:
@@ -976,7 +1095,7 @@ class ZergBot(sc2.BotAI):
             # TODO determine if we need to defend and how much with
             if need_to_protect:
                 self.army_state = ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
                     self.do(unit.attack(need_to_protect))
             # is everyone in position?
             for unit in self.units.tags_in(self.army_unit_tags):
@@ -999,7 +1118,7 @@ class ZergBot(sc2.BotAI):
                     enemy_supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
             # if we have 2x more army supply then flood new units
             if self.supply_army > enemy_supply * 2:
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK]).tags_not_in(self.army_unit_tags + self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.army_unit_tags + self.zergling_scout_tags):
                     self.army_unit_tags.append(unit.tag)
                     self.do(unit.attack(Point2(self.attack_position)))
                     self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
@@ -1016,45 +1135,7 @@ class ZergBot(sc2.BotAI):
             # if the attack has been dealt with go back to consolidating
             if need_to_protect == None:
                 self.army_state = ArmyState.CONSOLIDATING
-        """
-        if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([DRONE, QUEEN, OVERLORD])) >= 90:
-            if self.enemy_expos[5] == 1:
-                print("attack middle base")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(Point2(self.convert_location(self.expos[4]))))
-            elif self.enemy_expos[4] == 1:
-                print("attack triangle 5th")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(Point2(self.convert_location(self.expos[2]))))
-            elif self.enemy_expos[3] == 1:
-                print("attack inline 5th")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(Point2(self.convert_location(self.expos[6]))))
-            elif self.enemy_expos[2] == 1:
-                print("attack triangle 3rd")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(Point2(self.convert_location(self.expos[9]))))
-            elif self.enemy_expos[1] == 1:
-                print("attack inline 3rd")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(Point2(self.convert_location(self.expos[3]))))
-            elif self.enemy_expos[0] == 1:
-                print("attack natural")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(Point2(self.convert_location(self.expos[7]))))
-            else:
-                print("attack anything")
-                for unit in self.units.not_structure.exclude_type([DRONE, QUEEN, OVERLORD]):
-                    self.do(unit.attack(self.enemy_structures().random.position))
-                
-        elif len(self.enemy_units) > 0 and len(self.units.exclude_type([DRONE, QUEEN, OVERLORD])) > 1:
-            for enemy in self.enemy_units:
-                for hatch in self.townhalls:
-                    if enemy.distance_to(hatch) < 20:
-                        for unit in self.units.exclude_type([DRONE, QUEEN, OVERLORD]):
-                            self.do(unit.attack(enemy.position))
-                        return
-        """
+
     
                     
     async def find_attack_and_rally_points(self):
@@ -1232,7 +1313,33 @@ class ZergBot(sc2.BotAI):
             elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[1]):
                 self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[3])
                 self.muta_attack_point = self.convert_location(self.muta_attack_positions[2])
-                
+    
+    async def micro_swarm_hosts(self):
+        if len(self.structures(NYDUSNETWORK)) == 0 or len(self.structures(NYDUSCANAL)) == 0:
+            return
+        if self.swarm_host_state == SwarmHostState.WAITING:
+            if self.time - self.last_locust_wave > 43 and len(self.structures(NYDUSNETWORK)[0].passengers) >= 10:
+                self.swarm_host_state = SwarmHostState.UNLOADING
+                nydus = self.structures(NYDUSCANAL).ready.random
+                self.do(nydus(AbilityId.UNLOADALL_NYDUSWORM))
+                self.swarm_host_nydus = nydus.tag
+        elif self.swarm_host_state == SwarmHostState.UNLOADING:
+            nydus = self.structures.tags_in([self.swarm_host_nydus])[0]
+            target = nydus.position.closest(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS}))
+            if not self.structures(NYDUSNETWORK)[0].has_cargo:
+                for swarm_host in self.units(SWARMHOSTMP):
+                    self.do(swarm_host(AbilityId.EFFECT_SPAWNLOCUSTS, target.position))
+                    self.do(swarm_host.smart(nydus, True))
+                self.swarm_host_state = SwarmHostState.WAITING
+                self.last_locust_wave = self.time
+            else:
+                self.do(nydus(AbilityId.UNLOADALL_NYDUSWORM))
+    
+    async def micro_locusts(self):
+        for locust in self.units(LOCUSTMPFLYING):
+            print("flying locust")
+        for locust in self.units(LOCUSTMP):
+            print("locust")
     
 ########################################
 ################# MACRO ################
@@ -1392,6 +1499,30 @@ class ZergBot(sc2.BotAI):
                     return True
         return False
     
+    async def build_nydus_network(self):
+        if self.builder_drone == None or len(self.units.tags_in([self.builder_drone])) == 0:
+            self.build_location = None
+            self.builder_drone = self.select_build_worker(self.start_location).tag
+            if len(self.units.tags_in([self.builder_drone])) == 0:
+                self.builder_drone = None
+                return False
+        elif self.build_location == None:
+            print("no place")
+            builder = self.units.tags_in([self.builder_drone])[0]
+            pool_location = self.structures(SPAWNINGPOOL)[0].position
+            self.build_location = await self.find_placement(UnitTypeId.NYDUSNETWORK, near = pool_location, max_distance = 10)
+            if not await self.can_place(NYDUSNETWORK, self.build_location):
+                self.build_location = None
+        #elif not await self.can_place(NYDUSNETWORK, self.build_location):
+            #print("invalid place")
+            #self.build_location = None
+        elif await self.can_place(NYDUSNETWORK, self.build_location):
+            builder = self.units.tags_in([self.builder_drone])[0]
+            height = self.get_terrain_z_height(self.build_location)
+            self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
+            self.do(builder.build(NYDUSNETWORK, self.build_location))
+            
+    
     async def use_larva(self):
         # are any buildings needed
         if self.expansion_need == 100 or self.pending_upgrade == 1:
@@ -1421,6 +1552,9 @@ class ZergBot(sc2.BotAI):
             elif len(self.units(MUTALISK)) + self.already_pending(MUTALISK) < self.mutalisk_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 100:
                     self.do(larva.train(MUTALISK))
+            elif len(self.units(SWARMHOSTMP)) + self.already_pending(SWARMHOSTMP) < self.swarmhost_need and self.pending_upgrade != 2:
+                if self.minerals >= 100 and self.vespene >= 75:
+                    self.do(larva.train(SWARMHOSTMP))
             elif self.supply_workers + self.already_pending(DRONE) < self.drone_need:
                 if self.minerals >= 50:
                     if len(self.units(ZERGLING)) + self.already_pending(ZERGLING) < self.zergling_need:
@@ -1451,7 +1585,7 @@ class ZergBot(sc2.BotAI):
             if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
                 if self.can_afford(BANELINGNEST) and len(self.structures(BANELINGNEST)) == 0:
                     await self.build_baneling_nest()
-            elif self.army_composition == ArmyComp.ROACH_HYDRA:
+            elif self.army_composition == ArmyComp.ROACH_HYDRA or self.army_composition == ArmyComp.ROACH_SWARM_HOST:
                 if self.can_afford(ROACHWARREN) and len(self.structures(ROACHWARREN)) == 0:
                     await self.build_roach_warren()
         if self.supply_workers > 40 or self.time > 240:
@@ -1461,7 +1595,7 @@ class ZergBot(sc2.BotAI):
                     if ability == AbilityId.UPGRADETOLAIR_LAIR:
                         self.do(hatch(AbilityId.UPGRADETOLAIR_LAIR))
         if self.supply_workers > 80 or self.time > 480:
-            if len(self.structures(HIVE)) == 0 and not self.already_pending(HIVE):
+            if len(self.structures(HIVE)) == 0 and not self.already_pending(HIVE) and len(self.structures(LAIR)) > 0:
                 hatch = self.structures(LAIR)[0]
                 for ability in await self.get_available_abilities(hatch):
                     if ability == AbilityId.UPGRADETOHIVE_HIVE:
@@ -1478,8 +1612,13 @@ class ZergBot(sc2.BotAI):
             elif self.army_composition == ArmyComp.LING_BANE_MUTA:
                 if self.can_afford(SPIRE) and len(self.structures({SPIRE, GREATERSPIRE})) == 0:
                     await self.build_spire()
-                if self.can_afford(INFESTATIONPIT) and len(self.structures(INFESTATIONPIT)) == 0 and self.time > 300 and len(self.structures({SPIRE, GREATERSPIRE})) > 0:
+                    
+            elif  self.army_composition == ArmyComp.ROACH_SWARM_HOST and len(self.townhalls.ready) >= 3:
+                if self.can_afford(INFESTATIONPIT) and len(self.structures(INFESTATIONPIT)) == 0:
                     await self.build_infestation_pit()
+                if self.can_afford(NYDUSNETWORK) and len(self.structures(NYDUSNETWORK)) == 0:
+                    print("NYDUS")
+                    await self.build_nydus_network()
     
     async def build_extractor(self):
         if self.vespene > 500 or (self.time < 360 and len(self.structures(EXTRACTOR)) >= 2):
@@ -1541,7 +1680,7 @@ class ZergBot(sc2.BotAI):
                     self.pending_upgrade = 2
     
         # missile
-        if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.ROACH_HYDRA:
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.ROACH_HYDRA or self.army_composition == ArmyComp.ROACH_SWARM_HOST:
             if self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL1):
                 if self.can_afford(UpgradeId.ZERGMISSILEWEAPONSLEVEL1):
                     evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
@@ -1633,7 +1772,7 @@ class ZergBot(sc2.BotAI):
                     self.pending_upgrade = 2
 
         # roach
-        if self.army_composition == ArmyComp.ROACH_HYDRA:
+        if self.army_composition == ArmyComp.ROACH_HYDRA or self.army_composition == ArmyComp.ROACH_SWARM_HOST:
             if self.structures(ROACHWARREN).ready.idle and not self.already_pending_upgrade(UpgradeId.GLIALRECONSTITUTION) and len(self.structures({LAIR, HIVE})) > 0:
                 if self.can_afford(UpgradeId.GLIALRECONSTITUTION):
                     roach_warren = self.structures(ROACHWARREN).ready.idle.random
@@ -1763,6 +1902,9 @@ class ZergBot(sc2.BotAI):
             elif self.army_composition == ArmyComp.ROACH_HYDRA:
                 print("roach need: " + str(self.roach_need))
                 print("hydra need: " + str(self.hydralisk_need))
+            elif self.army_composition == ArmyComp.ROACH_SWARM_HOST:
+                print("roach need: " + str(self.roach_need))
+                print("swarm host need: " + str(self.swarmhost_need))
             if self.expansion_need == 100:
                 print("need to expand")
             else:
@@ -1790,17 +1932,22 @@ class ZergBot(sc2.BotAI):
             else:
                 self.injecting_queens.append(unit.tag)
             self.spread_inject_queens()
-        if unit.type_id == UnitTypeId.OVERLORD:
+        elif unit.type_id == UnitTypeId.OVERLORD:
             self.position_new_overlord(unit)
-        if unit.type_id == UnitTypeId.ZERGLING:
+        elif unit.type_id == UnitTypeId.ZERGLING:
             for i in range(0, len(self.zergling_scout_tags)):
                 if self.zergling_scout_tags[i] == None:
                     self.zergling_scout_tags[i] = unit.tag
                     break
+        elif unit.type_id == UnitTypeId.SWARMHOSTMP:
+            self.do(unit.smart(self.structures(NYDUSNETWORK)[0]))
     
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.HATCHERY:
             self.spread_inject_queens()
+        elif building.type_id == UnitTypeId.NYDUSNETWORK:
+            for swarm_host in self.units(SWARMHOSTMP):
+                self.do(swarm_host.smart(building))
     
     async def on_building_construction_started(self, unit):
         if unit.type_id == UnitTypeId.HATCHERY:
@@ -1934,7 +2081,7 @@ class ZergBot(sc2.BotAI):
         
 run_game(maps.get("LightshadeLE"), [
         Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Terran, Difficulty.VeryHard)
+        Computer(Race.Protoss, Difficulty.VeryHard)
         ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane

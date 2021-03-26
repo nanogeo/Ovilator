@@ -14,7 +14,7 @@ from sc2.position import Point2, Point3
 from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK, LOCUSTMP, LOCUSTMPFLYING
 from sc2.constants import ROACHBURROWED
 from sc2.constants import HATCHERY, LAIR, HIVE, EXTRACTOR, SPAWNINGPOOL, ROACHWARREN, HYDRALISKDEN, LURKERDEN, SPIRE, GREATERSPIRE, EVOLUTIONCHAMBER, SPORECRAWLER, SPINECRAWLER, INFESTATIONPIT, BANELINGNEST, CREEPTUMOR, NYDUSNETWORK, NYDUSCANAL, ULTRALISKCAVERN, CREEPTUMORBURROWED, CREEPTUMORQUEEN
-from sc2.constants import PROBE, SCV
+from sc2.constants import PROBE, SCV, MARINE
 from sc2.constants import NEXUS
 from sc2.constants import COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS
 from sc2.ids.upgrade_id import UpgradeId
@@ -340,7 +340,7 @@ class ZergBot(sc2.BotAI):
         self.burrow_movement_researched = False
         self.army_state = ArmyState.CONSOLIDATING
         
-        self.army_composition = ArmyComp.ROACH_SWARM_HOST
+        self.army_composition = ArmyComp.LING_BANE_HYDRA
         
 
 # muta micro
@@ -659,7 +659,7 @@ class ZergBot(sc2.BotAI):
                 else:
                     self.zergling_need = min(supply * 2, 20)
             else:
-                self.zergling_need = 60
+                self.zergling_need = 80
             #banes
             self.baneling_need = len(self.units(ZERGLING)) / 2
             #hydras
@@ -667,7 +667,7 @@ class ZergBot(sc2.BotAI):
                 if self.supply_workers + self.already_pending(DRONE) < 80:
                     self.hydralisk_need = supply * 0.25
                 else:
-                    self.hydralisk_need = 30
+                    self.hydralisk_need = 20
         elif self.army_composition == ArmyComp.ROACH_HYDRA:
             #roaches
             if len(self.structures(ROACHWARREN)) > 0:
@@ -697,7 +697,7 @@ class ZergBot(sc2.BotAI):
                     else:
                         self.roach_need = min(30, supply * 0.5)
                 else:
-                    self.roach_need = 40
+                    self.roach_need = 30
             elif supply > 10:
                 self.zergling_need = supply * .5
             #swarm hosts
@@ -751,6 +751,8 @@ class ZergBot(sc2.BotAI):
         if self.convert_location(Point2(self.overlord_positions[2])) in self.position_to_ovi_dict:
             ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[2]))]
             print("scout " + str(ovi_tag))
+            if len(self.units.tags_in([ovi_tag])) == 0:
+                return False
             for pos in self.main_scout_path:
                 self.do(self.units.tags_in([ovi_tag])[0].move(self.convert_location(Point2(pos)), True)) # TODO fix index out of range error
             self.position_to_ovi_dict.pop(self.convert_location(Point2(self.overlord_positions[2])))
@@ -1065,6 +1067,8 @@ class ZergBot(sc2.BotAI):
             for hatch in self.townhalls:
                 if enemy.distance_to(hatch) < 20:
                     need_to_protect = enemy.position
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
+            await self.micro_banes()
         if self.army_composition == ArmyComp.LING_BANE_MUTA:
             await self.micro_mutas()
         if self.army_composition == ArmyComp.ROACH_SWARM_HOST:
@@ -1318,7 +1322,7 @@ class ZergBot(sc2.BotAI):
         if len(self.structures(NYDUSNETWORK)) == 0 or len(self.structures(NYDUSCANAL)) == 0:
             return
         if self.swarm_host_state == SwarmHostState.WAITING:
-            if self.time - self.last_locust_wave > 43 and len(self.structures(NYDUSNETWORK)[0].passengers) >= 10:
+            if self.time - self.last_locust_wave > 43 and len(self.structures(NYDUSNETWORK)[0].passengers) >= 10 and len(self.structures(NYDUSCANAL).ready) > 0:
                 self.swarm_host_state = SwarmHostState.UNLOADING
                 nydus = self.structures(NYDUSCANAL).ready.random
                 self.do(nydus(AbilityId.UNLOADALL_NYDUSWORM))
@@ -1338,8 +1342,76 @@ class ZergBot(sc2.BotAI):
     async def micro_locusts(self):
         for locust in self.units(LOCUSTMPFLYING):
             print("flying locust")
+            if len(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})) > 0:
+                if locust.position.distance_to_closest(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})) <= 8:
+                    print("swoop")
+                    self.do(locust.attack(locust.position.closest(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS}))))
+                else:
+                    self.do(locust.move(locust.position.closest(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS}))))
+        
         for locust in self.units(LOCUSTMP):
-            print("locust")
+            if locust.weapon_cooldown == 0:
+                print("locust attack")
+                workers_in_range = self.enemy_units({SCV, DRONE, PROBE}).in_attack_range_of(locust)
+                if len(workers_in_range) > 0:
+                    self.do(locust.attack(workers_in_range.random))
+                    break
+                townhalls_in_range = self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS}).in_attack_range_of(locust)
+                if len(townhalls_in_range) > 0:
+                    self.do(locust.attack(townhalls_in_range.random))
+                    break
+                units_in_range = self.enemy_units().in_attack_range_of(locust)
+                if len(units_in_range) > 0:
+                    self.do(locust.attack(units_in_range.random))
+                    break
+                buildings_in_range = self.enemy_structures().in_attack_range_of(locust)
+                if len(buildings_in_range) > 0:
+                    self.do(locust.attack(buildings_in_range.random))
+                    break
+                # nothing in range
+                if len(self.enemy_units({SCV, DRONE, PROBE})) > 0:
+                    closest_worker = locust.position.closest(self.enemy_units({SCV, DRONE, PROBE}))
+                    if locust.position.distance_to(closest_worker) < 5:
+                        self.do(locust.move(closest_worker))
+                        break
+                if len(self.enemy_structures()) > 0:
+                    closest_structure = locust.position.closest(self.enemy_structures())
+                    if locust.position.distance_to(closest_structure) < 5:
+                        self.do(locust.move(closest_structure))
+                        break
+                if len(self.enemy_units()) > 0:
+                    closest_unit = locust.position.closest(self.enemy_units())
+                    if closest_unit:
+                        self.do(locust.move(closest_unit))
+                        break
+                else:
+                    locust.move(closest_structure)
+            else:
+                print("locust move")
+                if len(self.enemy_units({SCV, DRONE, PROBE})) > 0:
+                    closest_worker = locust.position.closest(self.enemy_units({SCV, DRONE, PROBE}))
+                    if locust.position.distance_to(closest_worker) < 5:
+                        self.do(locust.move(closest_worker))
+                        break
+                if len(self.enemy_structures()) > 0:
+                    closest_structure = locust.position.closest(self.enemy_structures())
+                    if locust.position.distance_to(closest_structure) < 5:
+                        self.do(locust.move(closest_structure))
+                        break
+                if len(self.enemy_units()) > 0:
+                    closest_unit = locust.position.closest(self.enemy_units())
+                    if closest_unit:
+                        self.do(locust.move(closest_unit))
+                        break
+                else:
+                    locust.move(closest_structure)
+    
+    async def micro_banes(self):
+        if self.army_state == ArmyState.ATTACKING or self.army_state == ArmyState.PROTECTING:
+            if len(self.units(BANELING)) > 0 and len(self.enemy_units(MARINE)) > 0:
+                for baneling in self.units(BANELING):
+                    if len(self.enemy_units(MARINE).closer_than(2, baneling.position)) >= 4:
+                        self.do(baneling(AbilityId.EXPLODE_EXPLODE))
     
 ########################################
 ################# MACRO ################
@@ -1557,8 +1629,6 @@ class ZergBot(sc2.BotAI):
                     self.do(larva.train(SWARMHOSTMP))
             elif self.supply_workers + self.already_pending(DRONE) < self.drone_need:
                 if self.minerals >= 50:
-                    if len(self.units(ZERGLING)) + self.already_pending(ZERGLING) < self.zergling_need:
-                        print("bad")
                     self.do(larva.train(DRONE))
         if self.pending_upgrade != 2:
             for zergling in self.units(ZERGLING).idle:
@@ -1617,7 +1687,6 @@ class ZergBot(sc2.BotAI):
                 if self.can_afford(INFESTATIONPIT) and len(self.structures(INFESTATIONPIT)) == 0:
                     await self.build_infestation_pit()
                 if self.can_afford(NYDUSNETWORK) and len(self.structures(NYDUSNETWORK)) == 0:
-                    print("NYDUS")
                     await self.build_nydus_network()
     
     async def build_extractor(self):
@@ -2081,7 +2150,7 @@ class ZergBot(sc2.BotAI):
         
 run_game(maps.get("LightshadeLE"), [
         Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Protoss, Difficulty.VeryHard)
+        Computer(Race.Terran, Difficulty.VeryHard)
         ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane

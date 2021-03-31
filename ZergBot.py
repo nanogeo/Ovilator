@@ -28,6 +28,13 @@ from dijkstra import Graph
 from dijkstra import DijkstraSPF
 import random
 
+class EnemyPlan:
+    MACRO = 1
+    TURTLE = 2
+    TECHING = 3
+    TIMING_ATTACK = 4
+    ALL_IN = 5
+    CHEESE = 6
 
 class ArmyComp:
     LING_BANE_HYDRA = 1
@@ -57,7 +64,10 @@ class SwarmHostState:
     WAITING = 1
     UNLOADING = 2
 
-
+class QueenState:
+    SPREAD_CREEP = 1
+    DEFEND = 2
+    SPREAD_CAREFULLY = 3
     
     
 
@@ -66,6 +76,7 @@ class ZergBot(sc2.BotAI):
         self.has_debug = False
         self.debug_interval = 10
         self.unit_command_uses_self_do = True
+        self.bases = []
         self.injecting_queens = []
         self.creep_queens = []
         self.inactive_creep_tumors = []
@@ -192,6 +203,19 @@ class ZergBot(sc2.BotAI):
         self.build_step = 0
         self.builder_drone = None
         self.build_location = None
+        self.spore_positions = [(123, 54),
+                                (155, 120),
+                                (155, 132),
+                                (119, 46),
+                                (104, 20),
+                                (152, 68),
+                                (152, 33),
+                                (142, 25),
+                                (152, 88),
+                                (152, 101),
+                                (113, 28),
+                                (151, 56)]
+# creep
         self.creep_locations = [(139.618896484375, 92.466552734375),
                                 (127.156982421875, 81.634765625),
                                 (129.79638671875, 64.93896484375),
@@ -200,6 +224,9 @@ class ZergBot(sc2.BotAI):
                                 (139.1455078125, 65.218017578125)]
         self.creep_spread_to = []
         self.updated_creep = False
+        self.creep_queen_state = QueenState.SPREAD_CREEP
+        self.creep_coverage = 0
+        
         self.drone_need = 0
         self.queen_need = 0
         self.zergling_need = 0
@@ -235,9 +262,11 @@ class ZergBot(sc2.BotAI):
         self.enemy_unit_tags = {}
         self.enemy_unit_numbers = {}
         self.enemy_army_position = None
+        self.enemy_attack_point = None
 
 # scouting
         self.zergling_scout_tags = [None]*6
+        self.last_ling_scout_time = 0
         """[(108, 81),0
             (51, 57),1
             (149, 95),2
@@ -392,7 +421,6 @@ class ZergBot(sc2.BotAI):
         await self.inject_larva()
         await self.update_creep()
         await self.spread_creep()
-        await self.place_creep_tumors()
         await self.position_overlords()
         await self.scouting()
         await self.update_enemy_units()
@@ -402,8 +430,9 @@ class ZergBot(sc2.BotAI):
             await self.use_larva()
             await self.make_expansions()
             await self.expand_tech()
+            await self.scout_with_lings()
             await self.micro()
-        
+            
 
 ########################################
 ############# BUILD ORDER ##############
@@ -772,6 +801,24 @@ class ZergBot(sc2.BotAI):
                 self.do(ling.move(self.convert_location(Point2(self.scouting_path[i][j])), True))
         return True
     
+    async def scout_with_lings(self):
+        if not (self.enemy_expos[1] or self.enemy_expos[2]):
+            for i in range(0, len(self.zergling_scout_tags)):
+                if not self.zergling_scout_tags[i]:
+                    continue
+                ling = self.units.tags_in([self.zergling_scout_tags[i]])[0]
+                if ling.is_idle:
+                    self.do(ling.move(self.convert_location(Point2(self.scouting_path[i][-1])), True))
+        if not self.enemy_expos[0] and self.time - self.last_ling_scout_time > 30:
+            if len(self.units.tags_in(self.zergling_scout_tags)) > 0:
+                ling = self.units.tags_in(self.zergling_scout_tags).random
+                if ling.is_idle:
+                    self.do(ling.move(self.convert_location(self.expos[7])))
+                    self.last_ling_scout_time = self.time
+                
+            
+            
+    
     def check_enemy_expansions(self):
         new_expos = [0, 0, 0, 0, 0, 0]
         expo_numbers = [7, 3, 9, 6, 2, 4]
@@ -837,14 +884,17 @@ class ZergBot(sc2.BotAI):
                 height = self.get_terrain_z_height(pos)
                 self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 4, color = Point3((0, 255, 0)))
                 enemy_bases_locations = []
-                for i in range(0, len(self.enemy_expos)):
-                    if self.enemy_expos[i] > 0:
-                        enemy_bases_locations.append(self.convert_location(self.expos[expo_numbers[i]]))
-                closest_position = pos.closest(self.army_positions + enemy_bases_locations)
-                if closest_position in enemy_bases_locations:
-                    # enemy is on the defensive
-                    #print("enemy army on defense")
-                    break
+                
+            group = max(enemy_unit_groups, key = lambda k: len(k))
+            pos = group.center
+            for i in range(0, len(self.enemy_expos)):
+                if self.enemy_expos[i] > 0:
+                    enemy_bases_locations.append(self.convert_location(self.expos[expo_numbers[i]]))
+            closest_position = pos.closest(self.army_positions + enemy_bases_locations)
+            if closest_position in enemy_bases_locations:
+                #enemy is on the defensive
+                self.enemy_attack_point = None
+            else:
                 dijkstras_graph = DijkstraSPF(self.map_graph, self.army_positions.index(closest_position))
                 #print("%-5s %-5s" % ("label", "distance"))
                 #for u in [0, 2, 8, 9, 23]:
@@ -861,6 +911,7 @@ class ZergBot(sc2.BotAI):
                     self._client.debug_sphere_out(pos1, 4, color = Point3((255, 0, 255)))
                     self._client.debug_sphere_out(pos2, 4, color = Point3((255, 0, 255)))
                     self._client.debug_line_out(pos1, pos2, color = Point3((255, 0, 255)))
+                self.enemy_attack_point = Point2(self.army_positions[most_likely_path[len(most_likely_path) - 1]]).closest(self.townhalls)
                 
         # 0, 2, 7, 8, 9, 23
         """
@@ -901,14 +952,39 @@ class ZergBot(sc2.BotAI):
                         self.inactive_creep_tumors.append(tumor)
                         self.creep_spread_to.remove(spot)
                         break
+        
+        if self.creep_queen_state == QueenState.SPREAD_CREEP:
+            await self.place_creep_tumors()
+            if self.creep_coverage >= .4:
+                self.creep_queen_state = QueenState.SPREAD_CAREFULLY
+                print("creep reached 40%, start saving energy")
+            elif self.creep_coverage >= .6:
+                print("creep reached 60%, stop placing tumors")
+                self.creep_queen_state = QueenState.DEFEND
+        elif self.creep_queen_state == QueenState.SPREAD_CAREFULLY:
+            await self.place_creep_tumors_carefully()
+            if self.creep_coverage < .4:
+                print("creep receeded to <40%, stop saving energy")
+                self.creep_queen_state = QueenState.SPREAD_CREEP
+            elif self.creep_coverage >= .6:
+                print("creep reached 60%, stop placing tumors")
+                self.creep_queen_state = QueenState.DEFEND
+        
+            
     
     async def place_creep_tumors(self):
         for queen in self.creep_queens:
             if self.units.tags_in([queen])[0].energy >= 25 and self.units.tags_in([queen])[0].is_idle and len(self.creep_spread_to) > 0 :
                 self.do(self.units.tags_in([queen])[0](AbilityId.BUILD_CREEPTUMOR_QUEEN, Point2(self.creep_spread_to.pop(0))))
                 
+    async def place_creep_tumors_carefully(self):
+        for queen in self.creep_queens:
+            if self.units.tags_in([queen])[0].energy >= 75 and self.units.tags_in([queen])[0].is_idle and len(self.creep_spread_to) > 0 :
+                self.do(self.units.tags_in([queen])[0](AbilityId.BUILD_CREEPTUMOR_QUEEN, Point2(self.creep_spread_to.pop(0))))
                 
-    def find_creep_spots(self):
+    async def find_creep_spots(self):
+        await self.update_creep_coverage()
+        
         locations = []
         current_tumors = self.structures(CREEPTUMOR) + self.structures(CREEPTUMORBURROWED)
         pixel_map = self.game_info.placement_grid
@@ -920,6 +996,9 @@ class ZergBot(sc2.BotAI):
                         continue
                     # ignore any point that would block an expo
                     if Point2((i, j)).distance_to_closest(self.expansion_locations_list) < 4:
+                        continue
+                    # ignore points close to enemies
+                    if len(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) and Point2((i, j)).distance_to_closest(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) < 10:
                         continue
                     # find edges of creep
                     edge = False
@@ -943,13 +1022,23 @@ class ZergBot(sc2.BotAI):
         return locations
     
     async def update_creep(self):
-        if self.time > 600:
-            return
         if not self.updated_creep and int(self.time) % 2 == 0:
             self.updated_creep = True
-            self.creep_spread_to = self.find_creep_spots()
+            self.creep_spread_to = await self.find_creep_spots()
         elif self.updated_creep and int(self.time) % 2 == 1:
             self.updated_creep = False
+    
+    async def update_creep_coverage(self):
+        pixel_map = self.game_info.placement_grid
+        valid_points = 0
+        points_with_creep = 0
+        for  i in range(0, pixel_map.width):
+            for j in range(0, pixel_map.height):
+                if pixel_map.__getitem__((i, j)):
+                    valid_points += 1
+                    if self.has_creep(Point2((i, j))):
+                        points_with_creep += 1
+        self.creep_coverage = points_with_creep / valid_points
    
     def get_best_tumor_location(self, unit):
         assert isinstance(unit, Unit)
@@ -1067,6 +1156,8 @@ class ZergBot(sc2.BotAI):
             for hatch in self.townhalls:
                 if enemy.distance_to(hatch) < 20:
                     need_to_protect = enemy.position
+        if self.creep_queen_state == QueenState.DEFEND:
+            await self.micro_queen_defense(need_to_protect)
         if self.army_composition == ArmyComp.LING_BANE_HYDRA or self.army_composition == ArmyComp.LING_BANE_MUTA:
             await self.micro_banes()
         if self.army_composition == ArmyComp.LING_BANE_MUTA:
@@ -1171,6 +1262,28 @@ class ZergBot(sc2.BotAI):
             print("attack anything")
             self.rally_point = self.convert_location(self.rally_points[7])
             self.attack_position = self.enemy_structures.random.position
+            
+    async def micro_queen_defense(self, need_to_protect):
+        newest_base = self.enemy_attack_point
+        if self.enemy_attack_point == None:
+            newest_base = min(self.bases, key = lambda u: u.age)
+        self._client.debug_sphere_out(newest_base.position3d, 5, color = Point3((0, 255, 255)))
+        self._client.debug_text_world("Queens Defend Here", newest_base.position3d, Point3((0, 255, 255)), 16)
+        for queen in self.units().tags_in(self.creep_queens):
+            if queen.is_idle and queen.position.distance_to(newest_base) > 6:
+                self.do(queen.move(newest_base))
+            elif need_to_protect:
+                self.do(queen.attack(need_to_protect))
+
+    async def use_queen_transfuse(self):
+        low_units = self.units.subgroup(unit for unit in self.units if unit.max_health - unit.health >= 75)
+        queens_with_energy = self.units.tags_in(self.creep_queens).subgroup(unit for unit in self.units.tags_in(self.creep_queens) if self.can_cast(unit, AbilityId.TRANSFUSION_TRANSFUSION, only_check_energy_and_cooldown = True))
+        for queen in queens_with_energy:
+            for unit in low_units:
+                if queen.in_ability_cast_range(AbilityId.TRANSFUSION_TRANSFUSION, unit):
+                    self.do(queen(AbilityId.TRANSFUSION_TRANSFUSION, unit))
+                    low_units.remove(unit)
+                    break
     
     async def micro_roach(self, roach):
         if roach.health_percentage < .7 and self.burrow_researched and self.burrow_movement_researched and not roach.is_burrowed:
@@ -1429,12 +1542,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.ROACHWARREN, near = pool_location, max_distance = 10)
-            if not await self.can_place(ROACHWARREN, self.build_location):
+            if not await self.can_place_single(ROACHWARREN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(ROACHWARREN, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(ROACHWARREN, self.build_location):
+        elif await self.can_place_single(ROACHWARREN, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1453,12 +1566,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.BANELINGNEST, near = pool_location, max_distance = 10)
-            if not await self.can_place(ROACHWARREN, self.build_location):
+            if not await self.can_place_single(ROACHWARREN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(BANELINGNEST, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(BANELINGNEST, self.build_location):
+        elif await self.can_place_single(BANELINGNEST, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1476,12 +1589,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.EVOLUTIONCHAMBER, near = pool_location, max_distance = 10)
-            if not await self.can_place(ROACHWARREN, self.build_location):
+            if not await self.can_place_single(ROACHWARREN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(EVOLUTIONCHAMBER, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(EVOLUTIONCHAMBER, self.build_location):
+        elif await self.can_place_single(EVOLUTIONCHAMBER, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1499,12 +1612,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.HYDRALISKDEN, near = pool_location, max_distance = 10)
-            if not await self.can_place(HYDRALISKDEN, self.build_location):
+            if not await self.can_place_single(HYDRALISKDEN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(HYDRALISKDEN, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(HYDRALISKDEN, self.build_location):
+        elif await self.can_place_single(HYDRALISKDEN, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1522,12 +1635,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.INFESTATIONPIT, near = pool_location, max_distance = 10)
-            if not await self.can_place(INFESTATIONPIT, self.build_location):
+            if not await self.can_place_single(INFESTATIONPIT, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(INFESTATIONPIT, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(INFESTATIONPIT, self.build_location):
+        elif await self.can_place_single(INFESTATIONPIT, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1545,12 +1658,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.SPIRE, near = pool_location, max_distance = 10)
-            if not await self.can_place(SPIRE, self.build_location):
+            if not await self.can_place_single(SPIRE, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(SPIRE, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(SPIRE, self.build_location):
+        elif await self.can_place_single(SPIRE, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1583,12 +1696,12 @@ class ZergBot(sc2.BotAI):
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
             self.build_location = await self.find_placement(UnitTypeId.NYDUSNETWORK, near = pool_location, max_distance = 10)
-            if not await self.can_place(NYDUSNETWORK, self.build_location):
+            if not await self.can_place_single(NYDUSNETWORK, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(NYDUSNETWORK, self.build_location):
             #print("invalid place")
             #self.build_location = None
-        elif await self.can_place(NYDUSNETWORK, self.build_location):
+        elif await self.can_place_single(NYDUSNETWORK, self.build_location):
             builder = self.units.tags_in([self.builder_drone])[0]
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
@@ -1624,6 +1737,9 @@ class ZergBot(sc2.BotAI):
             elif len(self.units(MUTALISK)) + self.already_pending(MUTALISK) < self.mutalisk_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 100:
                     self.do(larva.train(MUTALISK))
+            elif len(self.structures(NYDUSNETWORK).ready) and len(self.structures(NYDUSNETWORK)[0].passengers) + len(self.units(SWARMHOSTMP)) + self.already_pending(SWARMHOSTMP) < self.swarmhost_need and self.pending_upgrade != 2:
+                if self.minerals >= 100 and self.vespene >= 75:
+                    self.do(larva.train(SWARMHOSTMP))
             elif len(self.units(SWARMHOSTMP)) + self.already_pending(SWARMHOSTMP) < self.swarmhost_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 75:
                     self.do(larva.train(SWARMHOSTMP))
@@ -1659,6 +1775,7 @@ class ZergBot(sc2.BotAI):
                 if self.can_afford(ROACHWARREN) and len(self.structures(ROACHWARREN)) == 0:
                     await self.build_roach_warren()
         if self.supply_workers > 40 or self.time > 240:
+            await self.build_spores()
             if len(self.structures(LAIR)) + len(self.structures(HIVE)) == 0 and not self.already_pending(LAIR):
                 hatch = self.structures(HATCHERY)[0]
                 for ability in await self.get_available_abilities(hatch):
@@ -1936,6 +2053,15 @@ class ZergBot(sc2.BotAI):
             else:
                 self.pending_upgrade = 2
     
+    async def build_spores(self):
+        #if self.spore_need == 100:
+        for spore_pos in self.spore_positions:
+            pos = self.convert_location(spore_pos)
+            if self.minerals > 150 and pos.distance_to_closest(self.townhalls.ready) < 10 and self.has_creep(pos):
+                if len(self.structures(SPORECRAWLER)) == 0 or pos.distance_to_closest(self.structures(SPORECRAWLER)) > 2:
+                    drone = pos.closest(self.units(DRONE))
+                    self.do(drone.build(SPORECRAWLER, pos))
+                        
     
 
 ########################################
@@ -1943,17 +2069,11 @@ class ZergBot(sc2.BotAI):
 ########################################
     
     async def display_debug_info(self):
-        """for i in range(0, len(self.army_positions)):
-            pos = Point2(self.army_positions[i])
-            height = self.get_terrain_z_height(pos)
-            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 0, 255)))
-            self._client.debug_text_world("pos " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 0, 255)), 16)
-            for j in range(0, len(self.army_position_links[i])):
-                h1 = self.get_terrain_z_height(Point2(self.army_positions[i])) + .1
-                h2 = self.get_terrain_z_height(Point2(self.army_positions[self.army_position_links[i][j]])) + .1
-                pos1 = Point3((self.army_positions[i][0], self.army_positions[i][1], h1))
-                pos2 = Point3((self.army_positions[self.army_position_links[i][j]][0], self.army_positions[self.army_position_links[i][j]][1], h2))
-                self._client.debug_line_out(pos1, pos2, color = Point3((255, 0, 255)))"""
+        for i in range(0, len(self.spore_positions)):
+            pos = self.convert_location(self.spore_positions[i])
+            height = self.get_terrain_z_height(Point2(pos))
+            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 1, color = Point3((255, 255, 0)))
+            self._client.debug_text_world("spore " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 255, 0)), 16)
         
         if not self.has_debug and round(self.time) % self.debug_interval == 0:
             self.has_debug = True
@@ -2014,6 +2134,7 @@ class ZergBot(sc2.BotAI):
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.HATCHERY:
             self.spread_inject_queens()
+            self.bases.append(building)
         elif building.type_id == UnitTypeId.NYDUSNETWORK:
             for swarm_host in self.units(SWARMHOSTMP):
                 self.do(swarm_host.smart(building))
@@ -2156,3 +2277,4 @@ run_game(maps.get("LightshadeLE"), [
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
 
 # myunits = Units([], self)
+                

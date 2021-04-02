@@ -6,6 +6,7 @@ Created on Sat Nov 28 23:53:47 2020
 """
 
 import sc2
+from sc2.data import Race
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
 from sc2.unit import Unit
@@ -27,6 +28,7 @@ from s2clientprotocol import sc2api_pb2 as sc_pb
 from dijkstra import Graph
 from dijkstra import DijkstraSPF
 import random
+import math
 
 class EnemyPlan:
     MACRO = 1
@@ -69,6 +71,18 @@ class QueenState:
     DEFEND = 2
     SPREAD_CAREFULLY = 3
     
+class LingRunby:
+    ling_tags = []
+    path = []
+    target = None
+
+
+class BlankBot(sc2.BotAI):
+    def __init__(self):
+        self.i = True
+    
+    async def on_step(self, iteration):
+        self.i = False
     
 
 class ZergBot(sc2.BotAI):
@@ -267,6 +281,8 @@ class ZergBot(sc2.BotAI):
 # scouting
         self.zergling_scout_tags = [None]*6
         self.last_ling_scout_time = 0
+        self.enemy_army_state = EnemyArmyState.DEFENDING
+        self.proxy_location = None
         """[(108, 81),0
             (51, 57),1
             (149, 95),2
@@ -612,7 +628,7 @@ class ZergBot(sc2.BotAI):
             print("seen late 4th")
         """
         #count enemy buildings
-        gates = 0
+        """gates = 0
         robos = 0
         stargates = 0
         forges = 0
@@ -651,17 +667,23 @@ class ZergBot(sc2.BotAI):
             elif building.type_id == UnitTypeId.DARKSHRINE:
                  dark_shrines += 1
             elif building.type_id == UnitTypeId.ROBOTICSBAY:
-                 robo_bays += 1
+                 robo_bays += 1"""
         #respond to scouts
-        if dark_shrines >= 1:
-            self.lair_need = 100
-        if stargates == 1:
-            # need more queens
-            self.hydra_den_need = 100
-        elif stargates > 1:
-            self.hydra_den_need = 100
-        if fleet_beacons:
-            self.spire_need == 100
+        if self.proxy_location:
+            await self.deny_proxy()
+            if len(self.enemy_structures) == 0:
+                self.proxy_location = None
+            else:
+                if self.proxy_location.distance_to_closest(self.enemy_structures) > 10:
+                    self.proxy_location = None
+        if self.time < 240:
+            #proxy
+            if self.proxy_location == None and len(self.enemy_structures) > 0:
+                furthest_building = self.enemy_start_locations[0].furthest(self.enemy_structures)
+                if self.enemy_start_locations[0].distance_to(furthest_building) > 50:
+                    await self.chat_send("Really? A proxy?")
+                    self.proxy_location = furthest_building.position
+                    await self.gauge_proxy_level()
    
     async def update_units_needs(self):
         #drones
@@ -688,7 +710,7 @@ class ZergBot(sc2.BotAI):
                 else:
                     self.zergling_need = min(supply * 2, 20)
             else:
-                self.zergling_need = 80
+                self.zergling_need = 150 - ((self.queen_need + self.infestor_need) * 2)
             #banes
             self.baneling_need = len(self.units(ZERGLING)) / 2
             #hydras
@@ -696,7 +718,7 @@ class ZergBot(sc2.BotAI):
                 if self.supply_workers + self.already_pending(DRONE) < 80:
                     self.hydralisk_need = supply * 0.25
                 else:
-                    self.hydralisk_need = 20
+                    self.hydralisk_need = 20 - ((self.queen_need + self.infestor_need) / 2)
         elif self.army_composition == ArmyComp.ROACH_HYDRA:
             #roaches
             if len(self.structures(ROACHWARREN)) > 0:
@@ -758,7 +780,7 @@ class ZergBot(sc2.BotAI):
     
     async def update_building_need(self):
         # the enemy has the same number of bases as us
-        if sum(self.enemy_expos) + 1 >= len(self.townhalls) + self.already_pending(HATCHERY) or self.time >= self.last_expansion_time + 180:
+        if sum(self.enemy_expos) + 1 >= len(self.townhalls) + self.already_pending(HATCHERY) or self.time >= self.last_expansion_time + 120:
             self.expansion_need = 100
         else:
             self.expansion_need = 0
@@ -893,8 +915,13 @@ class ZergBot(sc2.BotAI):
             closest_position = pos.closest(self.army_positions + enemy_bases_locations)
             if closest_position in enemy_bases_locations:
                 #enemy is on the defensive
+                self.enemy_army_state = EnemyArmyState.DEFENDING
                 self.enemy_attack_point = None
             else:
+                if closest_position in [self.army_positions[i] for i in [5, 6, 10, 14, 17]]:
+                    self.enemy_army_state = EnemyArmyState.PREPARING_ATTACK
+                else:
+                    self.enemy_army_state = EnemyArmyState.MOVING_TO_ATTACK
                 dijkstras_graph = DijkstraSPF(self.map_graph, self.army_positions.index(closest_position))
                 #print("%-5s %-5s" % ("label", "distance"))
                 #for u in [0, 2, 8, 9, 23]:
@@ -937,6 +964,37 @@ class ZergBot(sc2.BotAI):
             self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 0, 255)))
         """
     
+    async def gauge_proxy_level(self):
+        proxy_units = None
+        proxy_unit_numbers = {}
+        if len(self.enemy_units) > 0:
+            proxy_units = self.enemy_units.further_than(50, self.enemy_start_locations[0])
+            for unit in proxy_units:
+                if unit.type_id in proxy_unit_numbers.keys():
+                    proxy_unit_numbers[unit.type_id] = proxy_unit_numbers[unit.type_id] + 1
+                else:
+                    proxy_unit_numbers[unit.type_id] = 1
+        proxy_buildings = None
+        proxy_building_numbers = {}
+        if len(self.enemy_structures) > 0:
+            proxy_buildings = self.enemy_structures.further_than(50, self.enemy_start_locations[0])
+            for building in proxy_buildings:
+                if building.type_id in proxy_building_numbers.keys():
+                    proxy_building_numbers[building.type_id] = proxy_building_numbers[building.type_id] + 1
+                else:
+                    proxy_building_numbers[building.type_id] = 1
+        
+        if self.enemy_race == Race.Random:
+            if proxy_units:
+                self.enemy_race = proxy_units.random.race
+            elif proxy_buildings:
+                self.enemy_race = proxy_buildings.random.race
+
+        if self.enemy_race == Race.Terran:
+            if proxy_units:
+                await self.chat_send(str(proxy_unit_numbers))
+            if proxy_buildings:
+                await self.chat_send(str(proxy_building_numbers))
     
     
 ########################################
@@ -955,20 +1013,24 @@ class ZergBot(sc2.BotAI):
         
         if self.creep_queen_state == QueenState.SPREAD_CREEP:
             await self.place_creep_tumors()
-            if self.creep_coverage >= .4:
+            if self.creep_coverage >= .4 or self.enemy_army_state == EnemyArmyState.PREPARING_ATTACK:
                 self.creep_queen_state = QueenState.SPREAD_CAREFULLY
                 print("creep reached 40%, start saving energy")
-            elif self.creep_coverage >= .6:
+            elif self.creep_coverage >= .6 or self.enemy_army_state == EnemyArmyState.MOVING_TO_ATTACK:
                 print("creep reached 60%, stop placing tumors")
                 self.creep_queen_state = QueenState.DEFEND
         elif self.creep_queen_state == QueenState.SPREAD_CAREFULLY:
             await self.place_creep_tumors_carefully()
-            if self.creep_coverage < .4:
+            if self.creep_coverage < .4 and self.enemy_army_state == EnemyArmyState.DEFENDING:
                 print("creep receeded to <40%, stop saving energy")
                 self.creep_queen_state = QueenState.SPREAD_CREEP
-            elif self.creep_coverage >= .6:
+            elif self.creep_coverage >= .6 or self.enemy_army_state == EnemyArmyState.MOVING_TO_ATTACK:
                 print("creep reached 60%, stop placing tumors")
                 self.creep_queen_state = QueenState.DEFEND
+        elif self.creep_queen_state == QueenState.DEFEND:
+            if self.creep_coverage < .6 and not self.enemy_army_state == EnemyArmyState.MOVING_TO_ATTACK:
+                print("creep receeded to <60%, start placing tumors again")
+                self.creep_queen_state = QueenState.SPREAD_CAREFULLY
         
             
     
@@ -1166,23 +1228,25 @@ class ZergBot(sc2.BotAI):
             await self.spawn_nydus_worm()
             await self.micro_swarm_hosts()
             await self.micro_locusts()
+        if len(self.units(INFESTOR)) > 0:
+            await self.micro_infestors()
             
         if self.army_state == ArmyState.CONSOLIDATING:
             if need_to_protect:
                 self.army_state = ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]):
+                for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]):
                     self.do(unit.attack(need_to_protect))
             # move all units to the consolidation point
             for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags + self.muta_group_tags):
                 if unit.distance_to(Point2(self.convert_location(self.army_spot))) > 10 and unit.is_idle:
                     self.do(unit.move(Point2(self.convert_location(self.army_spot))))
             # if we have more than 90 army supply ready then go to the rally point
-            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags)) >= 90:
+            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags)) >= 100:
                 self.army_state = ArmyState.RALLYING
                 await self.find_attack_and_rally_points()
                 print("rally to " + str(self.rally_point))
                 self.army_unit_tags = []
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
                     self.army_unit_tags.append(unit.tag)
                     self.do(unit.attack(Point2(self.rally_point)))
         elif self.army_state == ArmyState.RALLYING:
@@ -1190,7 +1254,7 @@ class ZergBot(sc2.BotAI):
             # TODO determine if we need to defend and how much with
             if need_to_protect:
                 self.army_state = ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
                     self.do(unit.attack(need_to_protect))
             # is everyone in position?
             for unit in self.units.tags_in(self.army_unit_tags):
@@ -1526,6 +1590,51 @@ class ZergBot(sc2.BotAI):
                     if len(self.enemy_units(MARINE).closer_than(2, baneling.position)) >= 4:
                         self.do(baneling(AbilityId.EXPLODE_EXPLODE))
     
+    async def micro_infestors(self):
+        print("have infestors")
+        if self.army_state == ArmyState.ATTACKING or self.army_state == ArmyState.PROTECTING:
+            print("attacking")
+            for infestor in self.units(INFESTOR):
+                if infestor.energy >= 75:
+                    print("have energy")
+                    best_value = 5 # minimum 5 units hit
+                    best_target = None
+                    for target in self.enemy_units:
+                        if infestor.in_ability_cast_range(AbilityId.FUNGALGROWTH_FUNGALGROWTH, target):
+                            value = len(self.enemy_units.closer_than(2.25, target.position))
+                            if value > best_value:
+                                best_value = value
+                                best_target = target
+                                await self.chat_send("better target")
+                    if best_target:
+                        self._client.debug_line_out(infestor, best_target, color = Point3((255, 0, 0)))
+                        self._client.debug_sphere_out(best_target, 2.25, color = Point3((255, 0, 0)))
+                        self.do(infestor(AbilityId.FUNGALGROWTH_FUNGALGROWTH, best_target.position))
+                    elif len(self.units.tags_in(self.army_unit_tags)) > 0:
+                        closest_unit = infestor.position.closest(self.units.tags_in(self.army_unit_tags))
+                        self.do(infestor.move(closest_unit))
+                elif len(self.units.tags_in(self.army_unit_tags)) > 0:
+                    closest_unit = infestor.position.closest(self.units.tags_in(self.army_unit_tags))
+                    self.do(infestor.move(closest_unit))
+    
+    async def deny_proxy(self):
+        proxy_units = None
+        if len(self.enemy_units) > 0:
+            proxy_units = self.enemy_units.further_than(50, self.enemy_start_locations[0])
+        proxy_buildings = None
+        if len(self.enemy_structures) > 0:
+            proxy_buildings = self.enemy_structures.further_than(50, self.enemy_start_locations[0])
+        
+        for unit in self.units().exclude_type({LARVA, EGG, DRONE, OVERLORD, QUEEN}):
+            if unit.distance_to(self.proxy_location) > 10:
+                self.do(unit.attack(self.proxy_location))
+            else:
+                if proxy_units:
+                    self.do(unit.attack(unit.position.closest(proxy_units)))
+                elif proxy_buildings:
+                    self.do(unit.attack(unit.position.closest(proxy_buildings)))
+                    
+    
 ########################################
 ################# MACRO ################
 ########################################
@@ -1725,6 +1834,9 @@ class ZergBot(sc2.BotAI):
             if self.supply_cap < 200 and ((self.supply_used / self.supply_cap >= .8 and not self.already_pending(OVERLORD) > 0) or (self.supply_used / self.supply_cap >= .9 and not self.already_pending(OVERLORD) > 1)):
                 if self.minerals >= 100:
                     self.do(larva.train(OVERLORD))
+            elif self.supply_workers + self.already_pending(DRONE) < self.drone_need:
+                if self.minerals >= 50:
+                    self.do(larva.train(DRONE))
             elif len(self.units(ZERGLING)) + self.already_pending(ZERGLING) + len(self.units(BANELING)) + self.already_pending(BANELING) < self.zergling_need:
                 if self.minerals >= 50:
                     self.do(larva.train(ZERGLING))
@@ -1737,15 +1849,15 @@ class ZergBot(sc2.BotAI):
             elif len(self.units(MUTALISK)) + self.already_pending(MUTALISK) < self.mutalisk_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 100:
                     self.do(larva.train(MUTALISK))
+            elif len(self.units(INFESTOR)) + self.already_pending(INFESTOR) < self.infestor_need and self.pending_upgrade != 2:
+                if self.minerals >= 100 and self.vespene >= 150:
+                    self.do(larva.train(INFESTOR))
             elif len(self.structures(NYDUSNETWORK).ready) and len(self.structures(NYDUSNETWORK)[0].passengers) + len(self.units(SWARMHOSTMP)) + self.already_pending(SWARMHOSTMP) < self.swarmhost_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 75:
                     self.do(larva.train(SWARMHOSTMP))
             elif len(self.units(SWARMHOSTMP)) + self.already_pending(SWARMHOSTMP) < self.swarmhost_need and self.pending_upgrade != 2:
                 if self.minerals >= 100 and self.vespene >= 75:
                     self.do(larva.train(SWARMHOSTMP))
-            elif self.supply_workers + self.already_pending(DRONE) < self.drone_need:
-                if self.minerals >= 50:
-                    self.do(larva.train(DRONE))
         if self.pending_upgrade != 2:
             for zergling in self.units(ZERGLING).idle:
                 if len(self.units(BANELING)) + self.already_pending(BANELING) < self.baneling_need:
@@ -2028,6 +2140,7 @@ class ZergBot(sc2.BotAI):
                     self.pending_upgrade = 1
                 else:
                     self.pending_upgrade = 2
+        
 
         # hatchery
         if self.structures({HATCHERY, LAIR, HIVE}).ready.idle and not self.already_pending_upgrade(UpgradeId.OVERLORDSPEED) and self.time > 300:
@@ -2098,7 +2211,7 @@ class ZergBot(sc2.BotAI):
                 print("need to expand")
             else:
                  print("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
-                 print("next expo: " + str(self.last_expansion_time + 180) + " time " + str(self.time))
+                 print("next expo: " + str(self.last_expansion_time + 120) + " time " + str(self.time))
             print("END DEBUG")
         elif self.has_debug and round(self.time) % self.debug_interval == 1:
             self.has_debug = False
@@ -2142,6 +2255,7 @@ class ZergBot(sc2.BotAI):
     async def on_building_construction_started(self, unit):
         if unit.type_id == UnitTypeId.HATCHERY:
             self.last_expansion_time = self.time
+            await self.chat_send("Next expo at: " + str(math.floor((self.time + 120) / 60)) + ":" + str(math.floor((self.time + 120) % 60)))
             
     async def on_upgrade_complete(self, upgrade):
         if upgrade == UpgradeId.BURROW:
@@ -2178,6 +2292,12 @@ class ZergBot(sc2.BotAI):
 
 
     async def distribute_workers(self, resource_ratio: float = 2):
+        for base in self.townhalls.ready:
+            if base.surplus_harvesters < 0 and self.vespene > 500 and self.minerals < 500:
+                for drone in self.units(DRONE):
+                    if drone.order_target in self.structures(EXTRACTOR).tags:
+                        self.do(drone.stop())
+        
         if not self.mineral_field or not self.workers or not self.townhalls.ready:
             return
         worker_pool = [worker for worker in self.workers.idle]
@@ -2270,9 +2390,9 @@ class ZergBot(sc2.BotAI):
     
         
 run_game(maps.get("LightshadeLE"), [
-        Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Terran, Difficulty.VeryHard)
-        ], realtime = False)
+        Bot(Race.Terran, BlankBot()),
+        Bot(Race.Zerg, ZergBot())
+        ], realtime = True)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
 

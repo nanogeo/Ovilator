@@ -6,7 +6,6 @@ Created on Sat Nov 28 23:53:47 2020
 """
 
 import sc2
-from sc2.data import Race
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
 from sc2.unit import Unit
@@ -15,9 +14,10 @@ from sc2.position import Point2, Point3
 from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK, LOCUSTMP, LOCUSTMPFLYING
 from sc2.constants import ROACHBURROWED
 from sc2.constants import HATCHERY, LAIR, HIVE, EXTRACTOR, SPAWNINGPOOL, ROACHWARREN, HYDRALISKDEN, LURKERDEN, SPIRE, GREATERSPIRE, EVOLUTIONCHAMBER, SPORECRAWLER, SPINECRAWLER, INFESTATIONPIT, BANELINGNEST, CREEPTUMOR, NYDUSNETWORK, NYDUSCANAL, ULTRALISKCAVERN, CREEPTUMORBURROWED, CREEPTUMORQUEEN
-from sc2.constants import PROBE, SCV, MARINE
-from sc2.constants import NEXUS
-from sc2.constants import COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS
+from sc2.constants import PROBE, ZEALOT, STALKER, SENTRY, ADEPT, HIGHTEMPLAR, DARKTEMPLAR, IMMORTAL, COLOSSUS, DISRUPTOR, ARCHON, OBSERVER, WARPPRISM, PHOENIX, VOIDRAY, ORACLE, CARRIER, TEMPEST, MOTHERSHIP
+from sc2.constants import SCV, MULE, MARINE, MARAUDER, REAPER, GHOST, HELLION, SIEGETANK, CYCLONE, THOR, VIKING, MEDIVAC, LIBERATOR, RAVEN, BANSHEE, BATTLECRUISER
+from sc2.constants import NEXUS, PYLON, ASSIMILATOR, GATEWAY, FORGE, CYBERNETICSCORE, PHOTONCANNON, SHIELDBATTERY, ROBOTICSFACILITY, WARPGATE, STARGATE, TWILIGHTCOUNCIL, ROBOTICSBAY, FLEETBEACON, TEMPLARARCHIVE, DARKSHRINE
+from sc2.constants import COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS, SUPPLYDEPOT, REFINERY, BARRACKS, ENGINEERINGBAY, BUNKER, SENSORTOWER, MISSILETURRET, FACTORY, GHOSTACADEMY, STARPORT, ARMORY, FUSIONCORE
 from sc2.ids.upgrade_id import UpgradeId
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId
@@ -29,6 +29,7 @@ from dijkstra import Graph
 from dijkstra import DijkstraSPF
 import random
 import math
+from enum import Enum
 
 class EnemyPlan:
     MACRO = 1
@@ -75,6 +76,16 @@ class LingRunby:
     ling_tags = []
     path = []
     target = None
+    
+class ProxyStatus(Enum):
+    NONE = 1
+    PR_RAX_STARTED = 10
+    PR_SOME_RAX_FINISHED = 11
+    PR_ALL_RAX_FINISHED = 12
+    PR_UNPROTECTED_BUNKER = 13
+    PR_PROTECTED_BUNKER = 14
+    PR_NO_BUNKER_ATTACK = 15
+    PR_BUNKER_FINISHED = 16
 
 
 class BlankBot(sc2.BotAI):
@@ -311,6 +322,12 @@ class ZergBot(sc2.BotAI):
                                [(91, 97), (105, 109), (72, 96)],
                                [(118, 92), (128, 122), (113, 118), (64, 107)],
                                [(149, 95), (150, 126), (129, 141), (81, 136)]]
+        
+# proxy stuff
+        self.proxy_status = ProxyStatus.NONE
+        self.proxy_buildings = [] # (tag, type_id, build progress)
+        self.proxy_units = [] # (tag, type_id, health)
+        self.pulled_worker_tags = []
         
 # army stuff
         self.rally_points = [(114, 131),
@@ -670,22 +687,37 @@ class ZergBot(sc2.BotAI):
                  robo_bays += 1"""
         #respond to scouts
         if self.proxy_location:
-            await self.deny_proxy()
             if len(self.enemy_structures) == 0:
                 self.proxy_location = None
+                self.proxy_status = ProxyStatus.NONE
             else:
                 if self.proxy_location.distance_to_closest(self.enemy_structures) > 10:
                     self.proxy_location = None
+                    self.proxy_status = ProxyStatus.NONE
         if self.time < 240:
             #proxy
-            if self.proxy_location == None and len(self.enemy_structures) > 0:
+            if self.proxy_status == ProxyStatus.NONE and len(self.enemy_structures) > 0:
                 furthest_building = self.enemy_start_locations[0].furthest(self.enemy_structures)
                 if self.enemy_start_locations[0].distance_to(furthest_building) > 50:
                     await self.chat_send("Really? A proxy?")
                     self.proxy_location = furthest_building.position
+                    self.proxy_status = ProxyStatus.PR_RAX_STARTED
                     await self.gauge_proxy_level()
+            elif self.proxy_status != ProxyStatus.NONE:
+                await self.gauge_proxy_level()
+                await self.deny_proxy()
    
     async def update_units_needs(self):
+        # special events
+        if self.proxy_status != ProxyStatus.NONE:
+            self.drone_need = 0
+            self.queen_need = round(self.time / 120)
+            if self.vespene >= 100 and not self.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED):
+                self.zergling_need = 0
+            else:
+                self.zergling_need = 50
+            return
+        
         #drones
         if len(self.townhalls) < 3 and self.time < 240:
             self.drone_need = 25
@@ -779,6 +811,11 @@ class ZergBot(sc2.BotAI):
                     self.mutalisk_need = 25
     
     async def update_building_need(self):
+        # special events
+        if self.proxy_status != ProxyStatus.NONE:
+            self.expansion_need = 0
+            return
+        
         # the enemy has the same number of bases as us
         if sum(self.enemy_expos) + 1 >= len(self.townhalls) + self.already_pending(HATCHERY) or self.time >= self.last_expansion_time + 120:
             self.expansion_need = 100
@@ -964,38 +1001,143 @@ class ZergBot(sc2.BotAI):
             self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 0, 255)))
         """
     
-    async def gauge_proxy_level(self):
+    async def update_proxy_progress(self):
+        # update enemy units in proxy
         proxy_units = None
-        proxy_unit_numbers = {}
         if len(self.enemy_units) > 0:
             proxy_units = self.enemy_units.further_than(50, self.enemy_start_locations[0])
             for unit in proxy_units:
-                if unit.type_id in proxy_unit_numbers.keys():
-                    proxy_unit_numbers[unit.type_id] = proxy_unit_numbers[unit.type_id] + 1
-                else:
-                    proxy_unit_numbers[unit.type_id] = 1
+                new_unit = True
+                for unit_info in self.proxy_units:
+                    if unit.tag == unit_info[0]:
+                        unit_info = (unit_info[0], unit_info[1], unit.health)
+                        new_unit = False
+                        break
+                if new_unit:
+                    print("seen new proxy unit: " + str(unit.type_id))
+                    self.proxy_units.append((unit.tag, unit.type_id, unit.health))
+        
+        # update enemy bulidings in proxy
         proxy_buildings = None
-        proxy_building_numbers = {}
         if len(self.enemy_structures) > 0:
             proxy_buildings = self.enemy_structures.further_than(50, self.enemy_start_locations[0])
             for building in proxy_buildings:
-                if building.type_id in proxy_building_numbers.keys():
-                    proxy_building_numbers[building.type_id] = proxy_building_numbers[building.type_id] + 1
-                else:
-                    proxy_building_numbers[building.type_id] = 1
+                if building.is_snapshot:
+                    continue
+                new_building = True
+                for building_info in self.proxy_buildings:
+                    if building.tag == building_info[0]:
+                        new_building = False
+                        break
+                if new_building:
+                    print("seen new proxy structure: " + str(building.type_id))
+                    if building.type_id == BARRACKS:
+                        self.proxy_buildings.append((building.tag, building.type_id, building.build_progress - (5 / 644)))
+                    elif building.type_id == BUNKER:
+                        self.proxy_buildings.append((building.tag, building.type_id, building.build_progress - (5 / 406)))
+                        
+        
+        # update build percent for enemy buildings
+        print(self.proxy_buildings)
+        for i in range(0, len(self.proxy_buildings)):
+            if self.proxy_buildings[i][1] == BARRACKS:
+                self.proxy_buildings[i] = (self.proxy_buildings[i][0], self.proxy_buildings[i][1], min(1, self.proxy_buildings[i][2] + (5 / 644)))
+            elif self.proxy_buildings[i][1] == BUNKER:
+                self.proxy_buildings[i] = (self.proxy_buildings[i][0], self.proxy_buildings[i][1], min(1, self.proxy_buildings[i][2] + (5 / 406)))
+        
+    
+    async def gauge_proxy_level(self):
+        await self.update_proxy_progress()
         
         if self.enemy_race == Race.Random:
-            if proxy_units:
-                self.enemy_race = proxy_units.random.race
-            elif proxy_buildings:
-                self.enemy_race = proxy_buildings.random.race
+            return
 
         if self.enemy_race == Race.Terran:
-            if proxy_units:
-                await self.chat_send(str(proxy_unit_numbers))
-            if proxy_buildings:
-                await self.chat_send(str(proxy_building_numbers))
-    
+            if self.proxy_status == ProxyStatus.PR_RAX_STARTED:
+                # query build status for barrack
+                rax = [building for building in self.proxy_buildings if building[1] == BARRACKS]
+                if rax and any([building[2] >= 1 for building in rax]):
+                    print("some rax finished")
+                    self.proxy_status = ProxyStatus.PR_SOME_RAX_FINISHED
+                # query build progress for bunkers
+                bunkers = [building for building in self.proxy_buildings if building[1] == BUNKER]
+                if bunkers:
+                    if not any([unit[1] == MARINE for unit in self.proxy_units]):
+                        print("unprotected bunker started")
+                        self.proxy_status = ProxyStatus.PR_UNPROTECTED_BUNKER
+                    else:
+                        print("protected bunker started")
+                        self.proxy_status = ProxyStatus.PR_PROTECTED_BUNKER
+                # attack without bunkers?
+                marines = [unit for unit in self.enemy_units if unit.type_id == MARINE]
+                if marines and any([unit.position.distance_to_closest(self.townhalls) < 10 for unit in marines]):
+                    print("attacking without bunker")
+                    self.proxy_status = ProxyStatus.PR_NO_BUNKER_ATTACK
+            elif self.proxy_status == ProxyStatus.PR_SOME_RAX_FINISHED:
+                # query build status for barrack
+                rax = [building for building in self.proxy_buildings if building[1] == BARRACKS]
+                if rax and not any([building[2] < 1 for building in rax]):
+                    print("all rax finished")
+                    self.proxy_status = ProxyStatus.PR_ALL_RAX_FINISHED
+                # query build progress for bunkers
+                bunkers = [building for building in self.proxy_buildings if building[1] == BUNKER]
+                if bunkers:
+                    if not any([unit[1] == MARINE for unit in self.proxy_units]):
+                        print("unprotected bunker started")
+                        self.proxy_status = ProxyStatus.PR_UNPROTECTED_BUNKER
+                    else:
+                        print("protected bunker started")
+                        self.proxy_status = ProxyStatus.PR_PROTECTED_BUNKER
+                # attack without bunkers?
+                marines = [unit for unit in self.enemy_units if unit.type_id == MARINE]
+                if marines and any([unit.position.distance_to_closest(self.townhalls) < 10 for unit in marines]):
+                    print("attacking without bunker")
+                    self.proxy_status = ProxyStatus.PR_NO_BUNKER_ATTACK
+            elif self.proxy_status == ProxyStatus.PR_ALL_RAX_FINISHED:
+                # query build status for barrack
+                rax = [building for building in self.proxy_buildings if building[1] == BARRACKS]
+                if rax and any([building[2] < 1 for building in rax]):
+                    print("some rax finished")
+                    self.proxy_status = ProxyStatus.PR_SOME_RAX_FINISHED
+                # query build progress for bunkers
+                bunkers = [building for building in self.proxy_buildings if building[1] == BUNKER]
+                if bunkers:
+                    if not any([unit[1] == MARINE for unit in self.proxy_units]):
+                        print("unprotected bunker started")
+                        self.proxy_status = ProxyStatus.PR_UNPROTECTED_BUNKER
+                    else:
+                        print("protected bunker started")
+                        self.proxy_status = ProxyStatus.PR_PROTECTED_BUNKER
+                # attack without bunkers?
+                marines = [unit for unit in self.enemy_units if unit.type_id == MARINE]
+                if marines and any([unit.position.distance_to_closest(self.townhalls) < 10 for unit in marines]):
+                    print("attacking without bunker")
+                    self.proxy_status = ProxyStatus.PR_NO_BUNKER_ATTACK
+            elif self.proxy_status == ProxyStatus.PR_UNPROTECTED_BUNKER:
+                # query build progress for bunkers
+                if any([unit[1] == MARINE for unit in self.proxy_units]):
+                    self.proxy_status = ProxyStatus.PR_PROTECTED_BUNKER
+                elif any([building[1] == BUNKER and building[2] >= 1 for building in self.proxy_buildings]):
+                    print("bunker finished")
+                    self.proxy_status = ProxyStatus.PR_BUNKER_FINISHED
+            elif self.proxy_status == ProxyStatus.PR_PROTECTED_BUNKER:
+                # query build progress for bunkers
+                if any([building[1] == BUNKER and building[2] >= 1 for building in self.proxy_buildings]):
+                    print("bunker finished")
+                    self.proxy_status = ProxyStatus.PR_BUNKER_FINISHED
+            elif self.proxy_status == ProxyStatus.PR_NO_BUNKER_ATTACK:
+                # query build progress for bunkers
+                bunkers = [building for building in self.proxy_buildings if building[1] == BUNKER]
+                if bunkers:
+                    if not any([unit[1] == MARINE for unit in self.proxy_units]):
+                        print("unprotected bunker started")
+                        self.proxy_status = ProxyStatus.PR_UNPROTECTED_BUNKER
+                    else:
+                        print("protected bunker started")
+                        self.proxy_status = ProxyStatus.PR_PROTECTED_BUNKER
+            elif self.proxy_status == ProxyStatus.PR_BUNKER_FINISHED:
+                return
+                
     
 ########################################
 ################# CREEP ################
@@ -1618,21 +1760,23 @@ class ZergBot(sc2.BotAI):
                     self.do(infestor.move(closest_unit))
     
     async def deny_proxy(self):
-        proxy_units = None
-        if len(self.enemy_units) > 0:
-            proxy_units = self.enemy_units.further_than(50, self.enemy_start_locations[0])
-        proxy_buildings = None
-        if len(self.enemy_structures) > 0:
-            proxy_buildings = self.enemy_structures.further_than(50, self.enemy_start_locations[0])
+        return"""
+        if self.enemy_race == Race.Terran:
+            if self.proxy_status == ProxyStatus.PR_RAX_STARTED:
+                
+            elif self.proxy_status == ProxyStatus.PR_SOME_RAX_FINISHED:
+                
+            elif self.proxy_status == ProxyStatus.PR_ALL_RAX_FINISHED:
+                
+            elif self.proxy_status == ProxyStatus.PR_UNPROTECTED_BUNKER:
+                
+            elif self.proxy_status == ProxyStatus.PR_PROTECTED_BUNKER:
+                
+            elif self.proxy_status == ProxyStatus.PR_NO_BUNKER_ATTACK:
+                
+            elif self.proxy_status == ProxyStatus.PR_BUNKER_FINISHED:
+                """
         
-        for unit in self.units().exclude_type({LARVA, EGG, DRONE, OVERLORD, QUEEN}):
-            if unit.distance_to(self.proxy_location) > 10:
-                self.do(unit.attack(self.proxy_location))
-            else:
-                if proxy_units:
-                    self.do(unit.attack(unit.position.closest(proxy_units)))
-                elif proxy_buildings:
-                    self.do(unit.attack(unit.position.closest(proxy_buildings)))
                     
     
 ########################################
@@ -2190,6 +2334,7 @@ class ZergBot(sc2.BotAI):
         
         if not self.has_debug and round(self.time) % self.debug_interval == 0:
             self.has_debug = True
+            print("START DEBUG")
             print(str(self.time_formatted))
             print(str(self.enemy_unit_numbers))
             if self.army_composition == ArmyComp.LING_BANE_HYDRA:
@@ -2210,8 +2355,12 @@ class ZergBot(sc2.BotAI):
             if self.expansion_need == 100:
                 print("need to expand")
             else:
-                 print("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
-                 print("next expo: " + str(self.last_expansion_time + 120) + " time " + str(self.time))
+                print("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
+                print("next expo: " + str(self.last_expansion_time + 120) + " time " + str(self.time))
+            
+            print(self.proxy_status.name)
+            print(self.proxy_units)
+            print(self.proxy_buildings)
             print("END DEBUG")
         elif self.has_debug and round(self.time) % self.debug_interval == 1:
             self.has_debug = False
@@ -2268,6 +2417,15 @@ class ZergBot(sc2.BotAI):
             #print("-1 " + str(self.enemy_unit_tags[unit_tag]))
             self.enemy_unit_numbers[self.enemy_unit_tags[unit_tag]] = self.enemy_unit_numbers[self.enemy_unit_tags[unit_tag]] - 1
             del self.enemy_unit_tags[unit_tag]
+        for unit in self.proxy_units:
+            if unit_tag == unit[0]:
+                self.proxy_units.remove(unit)
+                break
+        for unit in self.proxy_buildings:
+            if unit_tag == unit[0]:
+                self.proxy_buildings.remove(unit)
+                break
+            
         for queen in self.injecting_queens:
             if unit_tag == queen:
                 self.injecting_queens.remove(queen)

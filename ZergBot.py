@@ -495,6 +495,7 @@ class ZergBot(sc2.BotAI):
     async def build_ling(self):
         if self.minerals >= 50 and self.supply_left >= 1 and len(self.units(LARVA)) > 0 and len(self.structures(SPAWNINGPOOL).ready) > 0:
             self.do(self.units(LARVA).random.train(ZERGLING))
+            print("make ling")
             return True
         return False
     

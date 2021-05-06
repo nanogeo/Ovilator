@@ -1814,6 +1814,10 @@ class ZergBot(sc2.BotAI):
                     await self.chat_send("need " + str(new_drones_needed) + " more drones")
                     for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, new_drones_needed):
                         self.pulled_worker_tags.append(drone.tag)
+                if new_drones_needed + 2 < 0 and len(self.pulled_worker_tags) > 0:
+                    await self.chat_send("need " + str(new_drones_needed * -1) + "less drones")
+                    for i in range(0, (new_drones_needed * -1)):
+                        self.pulled_worker_tags.pop(0)
                 if len(self.units(ZERGLING).ready) > 0:
                     for ling in self.units(ZERGLING).ready:
                         await self.micro_vs_proxy(ling)
@@ -1833,6 +1837,10 @@ class ZergBot(sc2.BotAI):
                     await self.chat_send("need " + str(enemy_force) + " more drones")
                     for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, enemy_force):
                         self.pulled_worker_tags.append(drone.tag)
+                if enemy_force + 2 < 0 and len(self.pulled_worker_tags) > 0:
+                    await self.chat_send("need " + str(enemy_force * -1) + "less drones")
+                    for i in range(0, (enemy_force * -1)):
+                        self.pulled_worker_tags.pop(0)
                 if self.breaking_proxy:
                     for ling in self.units(ZERGLING).ready:
                         await self.micro_vs_proxy(ling)
@@ -1864,6 +1872,10 @@ class ZergBot(sc2.BotAI):
                         await self.chat_send("need " + str(enemy_force) + " more drones")
                         for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, enemy_force):
                             self.pulled_worker_tags.append(drone.tag)
+                    if enemy_force + 2 < 0 and len(self.pulled_worker_tags) > 0:
+                        await self.chat_send("need " + str(enemy_force * -1) + "less drones")
+                        for i in range(0, (enemy_force * -1)):
+                            self.pulled_worker_tags.pop(0)
                     for ling in self.units(ZERGLING).ready:
                         await self.micro_vs_proxy(ling)
                     for drone in self.units.tags_in(self.pulled_worker_tags):

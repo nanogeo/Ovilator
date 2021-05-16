@@ -98,6 +98,9 @@ class BlankBot(sc2.BotAI):
 
 class ZergBot(sc2.BotAI):
     def __init__(self):
+        self.unit_command_uses_self_do = True
+        self.raw_affects_selection = True
+        
         self.has_debug = False
         self.debug_interval = 10
         self.unit_command_uses_self_do = True
@@ -121,8 +124,8 @@ class ZergBot(sc2.BotAI):
                             (93, self.build_queen),
                             (95, self.build_gas),
                             (101, self.build_overlord),
+                            (106, self.send_ling_scouts),
                             (109, self.build_drone),
-                            (110, self.send_ling_scouts),
                             (120, self.build_drone)]
         """
         (42, 92),	#	enemy natural pillar
@@ -446,7 +449,10 @@ class ZergBot(sc2.BotAI):
         self.last_locust_wave = 0
         self.swarm_host_state = SwarmHostState.WAITING
         self.swarm_host_nydus = None
-        
+    
+    
+    async def on_start(self):
+        self.client.game_step: int = 2
     
     async def on_step(self, iteration):
         await self.display_debug_info()
@@ -859,6 +865,9 @@ class ZergBot(sc2.BotAI):
     
     async def send_ling_scouts(self):
         for i in range(0, len(self.zergling_scout_tags)):
+            if len(self.units.tags_in([self.zergling_scout_tags[i]])) == 0:
+                return False
+        for i in range(0, len(self.zergling_scout_tags)):
             ling = self.units.tags_in([self.zergling_scout_tags[i]])[0]
             for j in range(0, len(self.scouting_path[i])):
                 self.do(ling.move(self.convert_location(Point2(self.scouting_path[i][j])), True))
@@ -1040,13 +1049,13 @@ class ZergBot(sc2.BotAI):
                     elif building.type_id == BUNKER:
                         self.proxy_buildings.append((building.tag, building.type_id, building.build_progress - (5 / 406)))
                         
-        
-        # update build percent for enemy buildings
-        for i in range(0, len(self.proxy_buildings)):
-            if self.proxy_buildings[i][1] == BARRACKS:
-                self.proxy_buildings[i] = (self.proxy_buildings[i][0], self.proxy_buildings[i][1], min(1, self.proxy_buildings[i][2] + (5 / 644)))
-            elif self.proxy_buildings[i][1] == BUNKER:
-                self.proxy_buildings[i] = (self.proxy_buildings[i][0], self.proxy_buildings[i][1], min(1, self.proxy_buildings[i][2] + (5 / 406)))
+        if len([unit for unit in self.proxy_units if unit[1] == SCV]) > 0:
+            # update build percent for enemy buildings only if there are still scvs alive
+            for i in range(0, len(self.proxy_buildings)):
+                if self.proxy_buildings[i][1] == BARRACKS:
+                    self.proxy_buildings[i] = (self.proxy_buildings[i][0], self.proxy_buildings[i][1], min(1, self.proxy_buildings[i][2] + (5 / 644)))
+                elif self.proxy_buildings[i][1] == BUNKER:
+                    self.proxy_buildings[i] = (self.proxy_buildings[i][0], self.proxy_buildings[i][1], min(1, self.proxy_buildings[i][2] + (5 / 406)))
         
     
     async def gauge_proxy_level(self):
@@ -1811,22 +1820,7 @@ class ZergBot(sc2.BotAI):
         if self.enemy_race == Race.Terran:
             if self.proxy_status == ProxyStatus.PR_RAX_STARTED:
                 scvs = [unit for unit in self.proxy_units if unit[1] == SCV]
-                # if we have lings, don't bother using drones
-                if len(self.units(ZERGLING).ready) > 0:
-                    for ling in self.units(ZERGLING).ready:
-                        await self.micro_vs_proxy(ling)
-                elif len(scvs) == 0 and len(self.pulled_worker_tags) > 0:
-                    await self.chat_send("none send scvs home")
-                    # when all scvs are dead, send the drones home
-                    self.pulled_worker_tags = []
-                    self.breaking_proxy = False
-                else:
-                    # when drones get close, don't stop
-                    if not self.breaking_proxy:
-                        for drone in self.units.tags_in(self.pulled_worker_tags):
-                            if drone.distance_to(self.proxy_location) < 10:
-                                self.breaking_proxy = True
-                                break
+                if len(scvs) > 0:
                     # pull more drones if neccessary
                     new_drones_needed = len(scvs) * 2 - len(self.pulled_worker_tags)
                     if new_drones_needed > 0:
@@ -1836,74 +1830,70 @@ class ZergBot(sc2.BotAI):
                     if len(self.pulled_worker_tags) > 0:
                         for drone in self.units.tags_in(self.pulled_worker_tags):
                             await self.micro_vs_proxy(drone)
-            elif self.proxy_status == ProxyStatus.PR_SOME_RAX_FINISHED:
-                enemy_force = 0
-                enemy_force += 2 * len([unit for unit in self.proxy_units if unit[1] == MARINE])
-                enemy_force += len([unit for unit in self.proxy_units if unit[1] == SCV])
-                enemy_force += len([building for building in self.proxy_buildings if building[1] == BARRACKS])
-                    
-                if self.breaking_proxy:
-                    print("break some")
-                    if enemy_force / 2 > len(self.units(ZERGLING).ready):
-                        await self.chat_send("some retreat")
-                        self.breaking_proxy = False
-                        for ling in self.units(ZERGLING).ready:
-                            if ling.distance_to(self.convert_location(self.expos[10])) > 8:
-                                self.do(ling.move(self.convert_location(self.expos[10])))
-                        return
-                    
-                    for ling in self.units(ZERGLING).ready:
-                        await self.micro_vs_proxy(ling)
-                    if len([unit for unit in self.proxy_units if unit[1] == SCV]) == 0 and len(self.pulled_worker_tags) > 0:
-                        await self.chat_send("some send scvs home")
-                        # when all scvs are dead, send the drones home
-                        self.pulled_worker_tags = []
-                        self.breaking_proxy = False
                 else:
-                    # consolidate forces
-                    enemy_force -= len(self.units(ZERGLING).ready)
-                    
-                    if enemy_force > 0:
-                        print("consolidate some")
-                        for ling in self.units(ZERGLING).ready:
-                            if ling.distance_to(self.convert_location(self.expos[10])) > 8:
-                                self.do(ling.move(self.convert_location(self.expos[10])))
-                    else:
-                        self.breaking_proxy = True
-            elif self.proxy_status == ProxyStatus.PR_ALL_RAX_FINISHED:
-                enemy_force = 0
-                enemy_force += 2 * len([unit for unit in self.proxy_units if unit[1] == MARINE])
-                enemy_force += len([unit for unit in self.proxy_units if unit[1] == SCV])
-                enemy_force += len([building for building in self.proxy_buildings if building[1] == BARRACKS])
+                    # once all scvs are dead withdraw the pulled drones
+                    self.pulled_worker_tags = []
                 
-                if self.breaking_proxy:
-                    print("break all")
-                    if enemy_force / 2 > len(self.units(ZERGLING).ready):
-                        await self.chat_send("all retreat")
-                        self.breaking_proxy = False
-                        for ling in self.units(ZERGLING).ready:
-                            if ling.distance_to(self.convert_location(self.expos[10])) > 8:
-                                self.do(ling.move(self.convert_location(self.expos[10])))
-                        return
-                    
+                if len(self.units(ZERGLING).ready) > 0:
                     for ling in self.units(ZERGLING).ready:
                         await self.micro_vs_proxy(ling)
-                    if len([unit for unit in self.proxy_units if unit[1] == SCV]) == 0 and len(self.pulled_worker_tags) > 0:
-                        await self.chat_send("all send scvs home")
-                        # when all scvs are dead, send the drones home
-                        self.pulled_worker_tags = []
-                        self.breaking_proxy = False
+                     
+            elif self.proxy_status == ProxyStatus.PR_SOME_RAX_FINISHED:
+                # withdraw injured drones
+                drones = self.units.tags_in(self.pulled_worker_tags)
+                escape_target = None
+                if self.structures(EXTRACTOR):
+                    escape_target = self.structures(EXTRACTOR).ready.random
                 else:
-                    # consolidate forces
-                    enemy_force -= len(self.units(ZERGLING).ready)
-                    
-                    if enemy_force > 0:
-                        print("consolidate all")
-                        for ling in self.units(ZERGLING).ready:
-                            if ling.distance_to(self.convert_location(self.expos[10])) > 8:
-                                self.do(ling.move(self.convert_location(self.expos[10])))
+                    escape_target = self.all_units().is_mineral_field.closest_to(self.start_location)
+                for drone in drones:
+                    if drone.health <= 15:
+                        self.do(drone.smart(escape_target))
+                        self.pulled_worker_tags.remove(drone.tag)
+                
+                num_barracks = len([building for building in self.proxy_buildings if building[1] == BARRACKS])
+                for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags):
+                    if len(self.pulled_worker_tags) >= 4 * num_barracks:
+                        break;
+                    if drone.health >= 40:
+                        self.pulled_worker_tags.append(drone.tag)
+                
+                for ling in self.units(ZERGLING).ready:
+                    if ling.distance_to(self.proxy_location) > 10:
+                        self.do(ling.move(self.units.tags_in(self.pulled_worker_tags).center))
                     else:
-                        self.breaking_proxy = True
+                        await self.micro_vs_proxy(ling)
+                for drone in self.units.tags_in(self.pulled_worker_tags):
+                    await self.micro_vs_proxy(drone)
+                
+            elif self.proxy_status == ProxyStatus.PR_ALL_RAX_FINISHED:
+                # withdraw injured drones
+                drones = self.units.tags_in(self.pulled_worker_tags)
+                escape_target = None
+                if self.structures(EXTRACTOR):
+                    escape_target = self.structures(EXTRACTOR).ready.random
+                else:
+                    escape_target = self.all_units().is_mineral_field.closest_to(self.start_location)
+                for drone in drones:
+                    if drone.health <= 15:
+                        self.do(drone.smart(escape_target))
+                        self.pulled_worker_tags.remove(drone.tag)
+                
+                num_barracks = len([building for building in self.proxy_buildings if building[1] == BARRACKS])
+                for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags):
+                    if len(self.pulled_worker_tags) >= 4 * num_barracks:
+                        break;
+                    if drone.health >= 40:
+                        self.pulled_worker_tags.append(drone.tag)
+                
+                for ling in self.units(ZERGLING).ready:
+                    if ling.distance_to(self.proxy_location) > 10:
+                        self.do(ling.move(self.units.tags_in(self.pulled_worker_tags).center))
+                    else:
+                        await self.micro_vs_proxy(ling)
+                for drone in self.units.tags_in(self.pulled_worker_tags):
+                    await self.micro_vs_proxy(drone)
+                
             """elif self.proxy_status == ProxyStatus.PR_UNPROTECTED_BUNKER:
                 
             elif self.proxy_status == ProxyStatus.PR_PROTECTED_BUNKER:
@@ -1925,158 +1915,15 @@ class ZergBot(sc2.BotAI):
                 self.do(drone.attack(self.proxy_location))
     
     async def enter_pr_some_rax_finished(self):
-        if len([unit for unit in self.proxy_units if unit[1] == MARINE]) > 0:
-            self.pulled_worker_tags = []
+        if len(self.pulled_worker_tags) > 0:
+            return
         
-        if self.units(ZERGLING).ready:
-            for ling in self.units(ZERGLING).ready:
-                await self.micro_vs_proxy(ling)
+        # make spines?
                     
     async def enter_pr_all_rax_finished(self):
         # consolidate forces
         return 
     
-    """
-    async def deny_proxy(self):
-        if self.enemy_race == Race.Terran:
-            if self.proxy_status == ProxyStatus.PR_RAX_STARTED:
-                new_drones_needed = len(self.enemy_structures(BARRACKS)) + 1 - len(self.pulled_worker_tags)
-                if new_drones_needed > 0:
-                    await self.chat_send("need " + str(new_drones_needed) + " more drones")
-                    for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, new_drones_needed):
-                        self.pulled_worker_tags.append(drone.tag)
-                if new_drones_needed + 2 < 0 and len(self.pulled_worker_tags) > 0:
-                    await self.chat_send("need " + str(new_drones_needed * -1) + "less drones")
-                    for i in range(0, (new_drones_needed * -1)):
-                        self.pulled_worker_tags.pop(-1)
-                if len(self.units(ZERGLING).ready) > 0:
-                    for ling in self.units(ZERGLING).ready:
-                        await self.micro_vs_proxy(ling)
-                if len(self.pulled_worker_tags) > 0:
-                    for drone in self.units.tags_in(self.pulled_worker_tags):
-                        await self.micro_vs_proxy(drone)
-            elif self.proxy_status == ProxyStatus.PR_SOME_RAX_FINISHED:
-                enemy_force = 0
-                enemy_force += 2 * len(self.enemy_units(MARINE))
-                enemy_force += len(self.enemy_units(SCV))
-                enemy_force += len(self.enemy_structures(BARRACKS))
-                enemy_force += len(self.enemy_structures(BARRACKS).ready)
-                
-                enemy_force -= len(self.units(ZERGLING).ready)
-                enemy_force -= len(self.pulled_worker_tags)
-                if enemy_force > 0:
-                    await self.chat_send("need " + str(enemy_force) + " more drones")
-                    for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, enemy_force):
-                        self.pulled_worker_tags.append(drone.tag)
-                if enemy_force + 2 < 0 and len(self.pulled_worker_tags) > 0:
-                    await self.chat_send("need " + str(enemy_force * -1) + "less drones")
-                    for i in range(0, (enemy_force * -1)):
-                        self.pulled_worker_tags.pop(-1)
-                if self.breaking_proxy:
-                    for ling in self.units(ZERGLING).ready:
-                        await self.micro_vs_proxy(ling)
-                    for drone in self.units.tags_in(self.pulled_worker_tags):
-                        await self.micro_vs_proxy(drone)
-                else:
-                    forces_ready = True
-                    for ling in self.units(ZERGLING).ready:
-                        if ling.distance_to(self.convert_location(self.expos[10])) > 8:
-                            self.do(ling.move(self.convert_location(self.expos[10])))
-                            forces_ready = False
-                    for drone in self.units.tags_in(self.pulled_worker_tags):
-                        if drone.distance_to(self.convert_location(self.expos[10])) > 8:
-                            self.do(drone.move(self.convert_location(self.expos[10])))
-                            forces_ready = False
-                    if forces_ready:
-                        self.breaking_proxy = True
-            elif self.proxy_status == ProxyStatus.PR_ALL_RAX_FINISHED:
-                enemy_force = 0
-                enemy_force += 2 * len(self.enemy_units(MARINE))
-                enemy_force += len(self.enemy_units(SCV))
-                enemy_force += len(self.enemy_structures(BARRACKS))
-                enemy_force += len(self.enemy_structures(BARRACKS).ready)
-                
-                enemy_force -= len(self.units(ZERGLING).ready)
-                enemy_force -= len(self.pulled_worker_tags)
-                if self.breaking_proxy:
-                    if enemy_force > 0:
-                        await self.chat_send("need " + str(enemy_force) + " more drones")
-                        for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, enemy_force):
-                            self.pulled_worker_tags.append(drone.tag)
-                    if enemy_force + 2 < 0 and len(self.pulled_worker_tags) > 0:
-                        await self.chat_send("need " + str(enemy_force * -1) + "less drones")
-                        for i in range(0, (enemy_force * -1)):
-                            self.pulled_worker_tags.pop(-1)
-                    for ling in self.units(ZERGLING).ready:
-                        await self.micro_vs_proxy(ling)
-                    for drone in self.units.tags_in(self.pulled_worker_tags):
-                        await self.micro_vs_proxy(drone)
-                else:
-                    for ling in self.units(ZERGLING).ready:
-                        if ling.distance_to(self.proxy_location) < 10:
-                            await self.micro_vs_proxy(ling)
-                        else:
-                            self.do(ling.move(self.convert_location(self.expos[10])))
-                    marines_since_proxy_finished = (self.time - self.proxy_finished_time) * len(self.enemy_structures(BARRACKS).ready) / 17
-                    enemy_force += 2 * marines_since_proxy_finished
-                    if len(self.units(ZERGLING)) > enemy_force:
-                        self.breaking_proxy = True
-                        for ling in self.units(ZERGLING).ready:
-                            await self.micro_vs_proxy(ling)
-            
-    async def enter_pr_some_rax_finished(self):
-        enemy_force = 0
-        enemy_force += 2 * len(self.enemy_units(MARINE))
-        enemy_force += len(self.enemy_units(SCV))
-        enemy_force += len(self.enemy_structures(BARRACKS))
-        enemy_force += len(self.enemy_structures(BARRACKS).ready)
-        
-        enemy_force -= len(self.units(ZERGLING).ready)
-        enemy_force -= len(self.pulled_worker_tags)
-        for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, enemy_force):
-            self.pulled_worker_tags.append(drone.tag)
-        if len(self.units(ZERGLING).ready) > 0:
-            for ling in self.units(ZERGLING).ready:
-                if ling.distance_to(self.proxy_location) < 10:
-                    self.breaking_proxy = True
-        if len(self.pulled_worker_tags) > 0:
-            for drone in self.units.tags_in(self.pulled_worker_tags):
-                if drone.distance_to(self.proxy_location) < 10:
-                    self.breaking_proxy = True
-            
-    async def enter_pr_all_rax_finished(self):
-        self.proxy_finished_time = self.time
-        if self.breaking_proxy:
-            enemy_force = 0
-            enemy_force += 2 * len(self.enemy_units(MARINE))
-            enemy_force += len(self.enemy_units(SCV))
-            enemy_force += len(self.enemy_structures(BARRACKS))
-            enemy_force += len(self.enemy_structures(BARRACKS).ready)
-            
-            enemy_force -= len(self.units(ZERGLING).ready)
-            enemy_force -= len(self.pulled_worker_tags)
-            for drone in self.units(DRONE).tags_not_in(self.pulled_worker_tags).closest_n_units(self.proxy_location, enemy_force):
-                self.pulled_worker_tags.append(drone.tag)
-        else:
-            for ling in self.units(ZERGLING).ready:
-                if ling.distance_to(self.proxy_location) < 10:
-                    self.do(ling.attack(self.proxy_location))
-                else:
-                    self.do(ling.move(self.convert_location(self.expos[10])))
-            if len(self.pulled_worker_tags) > 0:
-                for drone in self.units.tags_in(self.pulled_worker_tags):
-                    self.do(drone.stop)
-            self.pulled_worker_tags = []
-        
-    async def enter_pr_unprotected_bunker(self):
-        if len(self.units(ZERGLING).ready) > 0:
-            for ling in self.units(ZERGLING).ready:
-                self.do(ling.attack(self.enemy_structures(BUNKER).random))
-        bunkers = len(self.enemy_structures(BUNKER))
-        for drone in self.units:
-            self.pulled_worker_tags(drone.tag)
-            self.do(drone.attack(self.enemy_structures(BUNKER).random))
-    """
                     
     
 ########################################

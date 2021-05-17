@@ -292,6 +292,13 @@ class ZergBot(sc2.BotAI):
         self.enemy_army_position = None
         self.enemy_attack_point = None
 
+# mining
+        
+        self.mineral_patches = {} # {tag : (is_close, drone1, drone2, drone3)}
+        self.extractors = [] # {tag : (drone1, drone2, drone3)}
+        self.mining_drone_tags = []
+        self.non_mining_drone_tags = []
+
 # scouting
         self.zergling_scout_tags = [None]*6
         self.last_ling_scout_time = 0
@@ -453,6 +460,7 @@ class ZergBot(sc2.BotAI):
     
     async def on_start(self):
         self.client.game_step: int = 2
+        self.set_up_map_graph()
     
     async def on_step(self, iteration):
         await self.display_debug_info()
@@ -1060,6 +1068,9 @@ class ZergBot(sc2.BotAI):
     
     async def gauge_proxy_level(self):
         await self.update_proxy_progress()
+        if len(self.proxy_buildings) == 0 and len(self.proxy_units) == 0:
+            self.proxy_status = ProxyStatus.NONE
+            await self.chat_send("proxy ended")
         
         if self.enemy_race == Race.Random:
             return
@@ -1915,13 +1926,11 @@ class ZergBot(sc2.BotAI):
                 self.do(drone.attack(self.proxy_location))
     
     async def enter_pr_some_rax_finished(self):
-        if len(self.pulled_worker_tags) > 0:
-            return
-        
-        # make spines?
+        # unused for now
+        return
                     
     async def enter_pr_all_rax_finished(self):
-        # consolidate forces
+        # unused for now
         return 
     
                     
@@ -2520,33 +2529,37 @@ class ZergBot(sc2.BotAI):
                 self.map_graph.add_edge(i, self.army_position_links[i][j], Point2(self.army_positions[i]).distance_to(Point2(self.army_positions[self.army_position_links[i][j]])))
         
     
-    async def on_start(self):
-        self.set_up_map_graph()
 
     async def on_unit_created(self, unit):
-        if unit.type_id == UnitTypeId.QUEEN:
+        if unit.type_id == QUEEN:
             if len(self.injecting_queens) > len(self.creep_queens):
                 self.creep_queens.append(unit.tag)
             else:
                 self.injecting_queens.append(unit.tag)
             self.spread_inject_queens()
-        elif unit.type_id == UnitTypeId.OVERLORD:
+        elif unit.type_id == OVERLORD:
             self.position_new_overlord(unit)
-        elif unit.type_id == UnitTypeId.ZERGLING:
+        elif unit.type_id == ZERGLING:
             for i in range(0, len(self.zergling_scout_tags)):
                 if self.zergling_scout_tags[i] == None:
                     self.zergling_scout_tags[i] = unit.tag
                     break
-        elif unit.type_id == UnitTypeId.SWARMHOSTMP:
+        elif unit.type_id == SWARMHOSTMP:
             self.do(unit.smart(self.structures(NYDUSNETWORK)[0]))
+        elif unit.type_id == DRONE:
+            self.place_drone(unit)
     
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.HATCHERY:
             self.spread_inject_queens()
             self.bases.append(building)
+            for mineral_field in self.all_units.mineral_field.closer_than(10, building.position):
+                self.mineral_patches[mineral_field.tag] = (mineral_field.mineral_contents == 1800, None, None, None)
         elif building.type_id == UnitTypeId.NYDUSNETWORK:
             for swarm_host in self.units(SWARMHOSTMP):
                 self.do(swarm_host.smart(building))
+        elif building.type_id == UnitTypeId.EXTRACTOR:
+            self.extractors[building.tag] = (None, None, None)
     
     async def on_building_construction_started(self, unit):
         if unit.type_id == UnitTypeId.HATCHERY:
@@ -2567,25 +2580,42 @@ class ZergBot(sc2.BotAI):
         for unit in self.proxy_units:
             if unit_tag == unit[0]:
                 self.proxy_units.remove(unit)
-                break
+                return
         for unit in self.proxy_buildings:
             if unit_tag == unit[0]:
                 self.proxy_buildings.remove(unit)
-                break
+                return
             
         for queen in self.injecting_queens:
             if unit_tag == queen:
                 self.injecting_queens.remove(queen)
+                return
         for queen in self.creep_queens:
             if unit_tag == queen:
                 self.creep_queens.remove(queen)
+                return
         for i in range(0, 6):
             if self.zergling_scout_tags[i] == unit_tag:
                 self.zergling_scout_tags[i] = None
-                break
+                return
         for muta in self.muta_group_tags:
             if unit_tag == muta:
                 self.muta_group_tags.remove(muta)
+                return
+                
+        for patch in self.mineral_patches.keys():
+            if patch == unit_tag:
+                drones = list(self.mineral_patches.pop(unit_tag[, (None, None, None, None)]))
+                for drone in self.units.tags_in(drones):
+                    self.place_drone(drone)
+                return
+        
+        mineral_patch = [patch for patch in self.mineral_patches.values() if patch[1] == unit_tag or patch[2] == unit_tag or patch[3] == unit_tag]
+        for patch in mineral_patch:
+            
+            if patch[1] == unit_tag:
+                
+                
 
 
     def convert_location(self, location):
@@ -2594,9 +2624,43 @@ class ZergBot(sc2.BotAI):
         else:
             return Point2((143.5, 32.5)) - Point2(location) + Point2((40.5, 131.5))
 
-
+    def place_drone(self, drone):
+        for mineral_field in [patch for patch in self.mineral_patches.keys() if self.mineral_patches[patch][1] == None]:
+            self.mineral_patches[mineral_field][1] = drone.tag
+            return
+        for mineral_field in [patch for patch in self.mineral_patches.keys() if self.mineral_patches[patch][2] == None]:
+            self.mineral_patches[mineral_field][2] = drone.tag
+            return
+        for extractor in [patch for patch in self.extractors.keys() if self.extractors[patch][0] == None]:
+            self.extractors[mineral_field][0] = drone.tag
+            return
+        for extractor in [patch for patch in self.extractors.keys() if self.extractors[patch][1] == None]:
+            self.extractors[mineral_field][1] = drone.tag
+            return
+        for extractor in [patch for patch in self.extractors.keys() if self.extractors[patch][2] == None]:
+            self.extractors[mineral_field][2] = drone.tag
+            return
+        for mineral_field in [patch for patch in self.mineral_patches.keys() if self.mineral_patches[patch][3] == None]:
+            self.mineral_patches[mineral_field][3] = drone.tag
+            return
 
     async def distribute_workers(self, resource_ratio: float = 2):
+        
+        for mineral_patch in self.all_units.tags_in(self.mineral_patches.keys()):
+            self.client.debug_sphere_out(mineral_patch.position3d, 1, color = Point3((255 * self.mineral_patches[mineral_patch.tag][0], 255, 0)))
+            
+            hatch_pos = self.townhalls.closest_to(mineral_patch.position).position
+            mineral_pos = mineral_patch.position
+            vector = mineral_pos - hatch_pos
+            normal_vector = vector / math.sqrt((vector[0] * vector[0]) + (vector[1] * vector[1]))
+            
+            self.client.debug_sphere_out(self.townhalls.closest_to(mineral_patch.position).position3d + Point3((normal_vector[0] * 3, normal_vector[1] * 3, 0)), .5, color = Point3((255, 0, 0)))
+            
+            self.client.debug_line_out(self.townhalls.closest_to(mineral_patch.position).position3d + Point3((normal_vector[0] * 3, normal_vector[1] * 3, 0)), mineral_patch.position3d, color = Point3((255, 0, 0)))
+        
+        
+        
+        
         for base in self.townhalls.ready:
             if base.surplus_harvesters < 0 and self.vespene > 500 and self.minerals < 500:
                 for drone in self.units(DRONE):

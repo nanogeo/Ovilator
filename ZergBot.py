@@ -123,10 +123,10 @@ class ZergBot(sc2.BotAI):
                             (45, self.build_drone),
                             (55, self.build_hatch),
                             (68, self.build_drone),
-                            (70, self.build_gas),
                             (86, self.build_ling),
                             (86, self.build_ling),
                             (86, self.build_ling),
+                            (87, self.build_gas),
                             (89, self.build_queen),
                             (96, self.build_overlord),
                             (103, self.send_ling_scouts),
@@ -134,24 +134,24 @@ class ZergBot(sc2.BotAI):
                             (116, self.build_drone)]
         """
         [(0, self.build_drone),
-                            (12, self.build_overlord),
-                            (16, self.build_drone),
-                            (30, self.build_drone),
-                            (30, self.build_drone),
-                            (37, self.build_pool),
-                            (44, self.build_drone),
-                            (50, self.build_drone),
-                            (72, self.build_hatch),
-                            (74, self.build_drone),
-                            (87, self.build_ling),
-                            (87, self.build_ling),
-                            (87, self.build_ling),
-                            (93, self.build_queen),
-                            (95, self.build_gas),
-                            (101, self.build_overlord),
-                            (106, self.send_ling_scouts),
-                            (109, self.build_drone),
-                            (120, self.build_drone)]
+        (12, self.build_overlord),
+        (16, self.build_drone),
+        (30, self.build_drone),
+        (30, self.build_drone),
+        (37, self.build_pool),
+        (44, self.build_drone),
+        (50, self.build_drone),
+        (72, self.build_hatch),
+        (74, self.build_drone),
+        (87, self.build_ling),
+        (87, self.build_ling),
+        (87, self.build_ling),
+        (93, self.build_queen),
+        (95, self.build_gas),
+        (101, self.build_overlord),
+        (106, self.send_ling_scouts),
+        (109, self.build_drone),
+        (120, self.build_drone)]
         
         
         (42, 92),	#	enemy natural pillar
@@ -2675,7 +2675,23 @@ class ZergBot(sc2.BotAI):
             elif self.mineral_patches[patch][3] == unit_tag:
                 self.mineral_patches[patch] = (self.mineral_patches[patch][0], self.mineral_patches[patch][1], self.mineral_patches[patch][2], None)
             return
-                
+        
+        if unit_tag in self.extractors.keys():
+            drones = list(self.extractors.pop(unit_tag, (None, None, None)))
+            for drone in self.units.tags_in(drones):
+                self.extractors_reversed.pop(drone.tag)
+                self.place_drone(drone)
+            return
+        
+        if unit_tag in self.extractors_reversed.keys():
+            patch = self.extractors_reversed.pop(unit_tag)
+            if self.extractors[patch][0] == unit_tag:
+                self.extractors[patch] = (self.extractors[patch][1], self.extractors[patch][2], None)
+            elif self.extractors[patch][1] == unit_tag:
+                self.extractors[patch] = (self.extractors[patch][0], self.extractors[patch][2], None)
+            elif self.extractors[patch][2] == unit_tag:
+                self.extractors[patch] = (self.extractors[patch][0], self.extractors[patch][1], None)
+            return
 
 
     def convert_location(self, location):
@@ -2709,7 +2725,22 @@ class ZergBot(sc2.BotAI):
             self.mineral_patches[mineral_field] = (self.mineral_patches[mineral_field][0], self.mineral_patches[mineral_field][1], self.mineral_patches[mineral_field][2], drone.tag)
             self.mineral_patches_reversed[drone.tag] = mineral_field
             return
+        print("ERROR no place for drone")
     
+    def balance_drones(self):
+        extra_drones = self.units.tags_in([patch[3] for patch in self.mineral_patches.values() if patch[3] != None])
+        missing_drones = len([patch[1] for patch in self.mineral_patches.values() if patch[1] == None])
+        missing_drones += len([patch[2] for patch in self.mineral_patches.values() if patch[2] == None])
+        missing_drones += len([patch[0] for patch in self.extractors.values() if patch[0] == None])
+        missing_drones += len([patch[1] for patch in self.extractors.values() if patch[1] == None])
+        missing_drones += len([patch[2] for patch in self.extractors.values() if patch[2] == None])
+        for i in range(0, min(missing_drones, len(extra_drones))):
+            print("extra drones: " + str(extra_drones))
+            print(missing_drones)
+            self.remove_drone(extra_drones[i].tag)
+            self.place_drone(extra_drones[i])
+        
+        
     def remove_drone(self, drone_tag):
         if drone_tag in self.mineral_patches_reversed.keys():
             patch = self.mineral_patches_reversed.pop(drone_tag)
@@ -2719,7 +2750,14 @@ class ZergBot(sc2.BotAI):
                 self.mineral_patches[patch] = (self.mineral_patches[patch][0], self.mineral_patches[patch][1], self.mineral_patches[patch][3], None)
             elif self.mineral_patches[patch][3] == drone_tag:
                 self.mineral_patches[patch] = (self.mineral_patches[patch][0], self.mineral_patches[patch][1], self.mineral_patches[patch][2], None)
-            return
+        elif drone_tag in self.extractors_reversed.keys():
+            patch = self.extractors_reversed.pop(drone_tag)
+            if self.extractors[patch][0] == drone_tag:
+                self.extractors[patch] = (self.extractors[patch][1], self.extractors[patch][2], None)
+            elif self.extractors[patch][1] == drone_tag:
+                self.extractors[patch] = (self.extractors[patch][0], self.extractors[patch][2], None)
+            elif self.extractors[patch][2] == drone_tag:
+                self.extractors[patch] = (self.extractors[patch][0], self.extractors[patch][1], None)
     
     def split_drones(self):
         for patch in self.all_units.tags_in(self.mineral_patches.keys()):
@@ -2747,15 +2785,19 @@ class ZergBot(sc2.BotAI):
             else:
                 self.client.debug_sphere_out(mineral_patch.position3d, 1, color = Point3((255, 0, 0)))
             
-        
+        self.balance_drones()
         
         for drone in self.units.tags_in(self.mineral_patches_reversed.keys()):
             if drone.is_carrying_resource:
                 if drone.position.distance_to_closest(self.townhalls) < math.sqrt(10):
                     self.do(drone.return_resource())
                     continue
+                try:
+                    mineral_patch = self.all_units.tags_in([self.mineral_patches_reversed[drone.tag]])[0]
+                except:
+                    print("error distribute workers")
+                    print(self.all_units.tags_in([self.mineral_patches_reversed[drone.tag]]))
                 
-                mineral_patch = self.all_units.tags_in([self.mineral_patches_reversed[drone.tag]])[0]
                 hatch_pos = self.townhalls.closest_to(mineral_patch.position).position
                 mineral_pos = mineral_patch.position
                 vector = mineral_pos - hatch_pos
@@ -2777,108 +2819,42 @@ class ZergBot(sc2.BotAI):
                     self.do(drone.move(mineral_patch.position3d + Point3((normal_vector[0] * .5, normal_vector[1] * .5, 0))))
                     self.client.debug_sphere_out(mineral_patch.position3d + Point3((normal_vector[0] * .5, normal_vector[1] * .5, 0)), .5, color = Point3((255, 0, 0)))
                     self.client.debug_line_out(drone.position3d, mineral_patch.position3d + Point3((normal_vector[0] * .5, normal_vector[1] * .5, 0)), color = Point3((255, 0, 0)))
-                    
+        
+        for drone in self.units.tags_in(self.extractors_reversed.keys()):
+            if drone.is_carrying_resource:
+                if drone.position.distance_to_closest(self.townhalls) < math.sqrt(10):
+                    self.do(drone.return_resource())
+                    continue
+                try:
+                    extractor = self.all_units.tags_in([self.extractors_reversed[drone.tag]])[0]
+                except:
+                    print("error distribute workers")
+                    print(self.all_units.tags_in([self.extractors_reversed[drone.tag]]))
+                
+                hatch_pos = self.townhalls.closest_to(extractor.position).position
+                extractor_pos = extractor.position
+                vector = extractor_pos - hatch_pos
+                normal_vector = vector / math.sqrt((vector[0] * vector[0]) + (vector[1] * vector[1]))
+                self.do(drone.move(self.townhalls.closest_to(extractor.position).position3d + Point3((normal_vector[0] * 2, normal_vector[1] * 2, 0))))
+                self.client.debug_sphere_out(self.townhalls.closest_to(extractor.position).position3d + Point3((normal_vector[0] * 2, normal_vector[1] * 2, 0)), .5, color = Point3((0, 255, 0)))
+                self.client.debug_line_out(drone.position3d, self.townhalls.closest_to(extractor.position).position3d + Point3((normal_vector[0] * 2, normal_vector[1] * 2, 0)), color = Point3((0, 255, 0)))
+                
+            else:
+                extractor = self.all_units.tags_in([self.extractors_reversed[drone.tag]])[0]
+                
+                if drone.distance_to(extractor) < 2 or drone.position.distance_to_closest(self.units(DRONE).tags_not_in([drone.tag])) < 1.2:
+                    self.do(drone.gather(extractor))
+                else:
+                    hatch_pos = self.townhalls.closest_to(extractor.position).position
+                    extractor_pos = extractor.position
+                    vector = hatch_pos - extractor_pos
+                    normal_vector = vector / math.sqrt((vector[0] * vector[0]) + (vector[1] * vector[1]))
+                    self.do(drone.move(extractor.position3d + Point3((normal_vector[0] * .5, normal_vector[1] * .5, 0))))
+                    self.client.debug_sphere_out(extractor.position3d + Point3((normal_vector[0] * .5, normal_vector[1] * .5, 0)), .5, color = Point3((255, 0, 0)))
+                    self.client.debug_line_out(drone.position3d, extractor.position3d + Point3((normal_vector[0] * .5, normal_vector[1] * .5, 0)), color = Point3((255, 0, 0)))
             
             
         
-        
-        """
-        for base in self.townhalls.ready:
-            if base.surplus_harvesters < 0 and self.vespene > 500 and self.minerals < 500:
-                for drone in self.units(DRONE):
-                    if drone.order_target in self.structures(EXTRACTOR).tags:
-                        self.do(drone.stop())
-        
-        if not self.mineral_field or not self.workers or not self.townhalls.ready:
-            return
-        worker_pool = [worker for worker in self.workers.idle]
-        bases = self.townhalls.ready
-        gas_buildings = self.gas_buildings.ready
-
-        # list of places that need more workers
-        deficit_mining_places = []
-
-        for mining_place in bases | gas_buildings:
-            difference = mining_place.surplus_harvesters
-            # perfect amount of workers, skip mining place
-            if not difference:
-                continue
-            if mining_place.has_vespene:
-                # get all workers that target the gas extraction site
-                # or are on their way back from it
-                local_workers = self.workers.filter(
-                    lambda unit: unit.order_target == mining_place.tag
-                    or (unit.is_carrying_vespene and unit.order_target == bases.closest_to(mining_place).tag)
-                )
-            else:
-                # get tags of minerals around expansion
-                local_minerals_tags = {
-                    mineral.tag for mineral in self.mineral_field if mineral.distance_to(mining_place) <= 8
-                }
-                # get all target tags a worker can have
-                # tags of the minerals he could mine at that base
-                # get workers that work at that gather site
-                local_workers = self.workers.filter(
-                    lambda unit: unit.order_target in local_minerals_tags
-                    or (unit.is_carrying_minerals and unit.order_target == mining_place.tag)
-                )
-            # too many workers
-            if difference > 0:
-                for worker in local_workers[:difference]:
-                    worker_pool.append(worker)
-            # too few workers
-            # add mining place to deficit bases for every missing worker
-            else:
-                deficit_mining_places += [mining_place for _ in range(-difference)]
-
-        # prepare all minerals near a base if we have too many workers
-        # and need to send them to the closest patch
-        if len(worker_pool) > len(deficit_mining_places):
-            all_minerals_near_base = [
-                mineral
-                for mineral in self.mineral_field
-                if any(mineral.distance_to(base) <= 8 for base in self.townhalls.ready)
-            ]
-        # distribute every worker in the pool
-        for worker in worker_pool:
-            # as long as have workers and mining places
-            if deficit_mining_places:
-                # choose only mineral fields first if current mineral to gas ratio is less than target ratio
-                if self.vespene and self.minerals / self.vespene < resource_ratio:
-                    possible_mining_places = [place for place in deficit_mining_places if not place.vespene_contents]
-                # else prefer gas
-                else:
-                    possible_mining_places = [place for place in deficit_mining_places if place.vespene_contents]
-                # if preferred type is not available any more, get all other places
-                if not possible_mining_places:
-                    possible_mining_places = deficit_mining_places
-                # find closest mining place
-                current_place = min(deficit_mining_places, key=lambda place: place.distance_to(worker))
-                # remove it from the list
-                deficit_mining_places.remove(current_place)
-                # if current place is a gas extraction site, go there
-                if current_place.vespene_contents:
-                    self.do(worker.gather(current_place))
-                # if current place is a gas extraction site,
-                # go to the mineral field that is near and has the most minerals left
-                else:
-                    local_minerals = (
-                        mineral for mineral in self.mineral_field if mineral.distance_to(current_place) <= 8
-                    )
-                    # local_minerals can be empty if townhall is misplaced
-                    target_mineral = max(local_minerals, key=lambda mineral: mineral.mineral_contents, default=None)
-                    if target_mineral:
-                        self.do(worker.gather(target_mineral))
-            # more workers to distribute than free mining spots
-            # send to closest if worker is doing nothing
-            elif worker.is_idle and all_minerals_near_base:
-                target_mineral = min(all_minerals_near_base, key=lambda mineral: mineral.distance_to(worker))
-                self.do(worker.gather(target_mineral))
-            else:
-                # there are no deficit mining places and worker is not idle
-                # so dont move him
-                pass
-        """
         
 run_game(maps.get("LightshadeLE"), [
         Bot(Race.Terran, BlankBot()),
@@ -2889,3 +2865,36 @@ run_game(maps.get("LightshadeLE"), [
 
 # myunits = Units([], self)
                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

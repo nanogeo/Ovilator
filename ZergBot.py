@@ -2537,6 +2537,7 @@ class ZergBot(sc2.BotAI):
             if self.minerals > 150 and pos.distance_to_closest(self.townhalls.ready) < 10 and self.has_creep(pos):
                 if len(self.structures(SPORECRAWLER)) == 0 or pos.distance_to_closest(self.structures(SPORECRAWLER)) > 2:
                     drone = pos.closest(self.units(DRONE))
+                    self.remove_drone(drone.tag)
                     self.do(drone.build(SPORECRAWLER, pos))
                         
     
@@ -2781,6 +2782,10 @@ class ZergBot(sc2.BotAI):
         print("ERROR no place for drone")
     
     def balance_drones(self):
+        if round(self.time) > 10 and round(self.time) % 10 == 0:
+            for drone in self.units(DRONE).tags_not_in(list(self.mineral_patches_reversed.keys()) + list(self.extractors_reversed.keys()) + [self.builder_drone]):
+                self.place_drone(drone)
+        
         extra_drones = self.units.tags_in([patch[3] for patch in self.mineral_patches.values() if patch[3] != None])
         missing_drones = len([patch[1] for patch in self.mineral_patches.values() if patch[1] == None])
         missing_drones += len([patch[2] for patch in self.mineral_patches.values() if patch[2] == None])
@@ -2860,7 +2865,10 @@ class ZergBot(sc2.BotAI):
                 if drone.position.distance_to_closest(self.townhalls) < math.sqrt(10):
                     self.do(drone.return_resource())
                     continue
-                
+                if type(drone.order_target) == Point2:
+                    if drone.order_target.distance_to(self.mineral_patches_reversed[drone.tag][1].to2) < 1:
+                        continue
+                    
                 mineral_patch = self.tag_to_unit[self.mineral_patches_reversed[drone.tag][0]]
                 if mineral_patch != None:
                     drop_off_point = self.mineral_patches_reversed[drone.tag][1]
@@ -2874,8 +2882,14 @@ class ZergBot(sc2.BotAI):
                 mineral_patch = self.tag_to_unit[self.mineral_patches_reversed[drone.tag][0]]
                 if mineral_patch != None:
                     if drone.distance_to(mineral_patch) < 2 or drone.position.distance_to_closest(self.units(DRONE).tags_not_in([drone.tag])) < 1.2:
+                        if type(drone.order_target) == int:
+                            if drone.order_target == mineral_patch.tag:
+                                continue
                         self.do(drone.gather(mineral_patch))
                     else:
+                        if type(drone.order_target) == Point2:
+                            if drone.order_target.distance_to(self.mineral_patches_reversed[drone.tag][2].to2) < 1:
+                                continue
                         pick_up_point = self.mineral_patches_reversed[drone.tag][2]
                         self.do(drone.move(pick_up_point.to2))
                         #self.client.debug_sphere_out(pick_up_point, .5, color = Point3((255, 0, 0)))
@@ -2888,9 +2902,12 @@ class ZergBot(sc2.BotAI):
                 if drone.position.distance_to_closest(self.townhalls) < math.sqrt(10):
                     self.do(drone.return_resource())
                     continue
+                if type(drone.order_target) == Point2:
+                    if drone.order_target.distance_to(self.extractors_reversed[drone.tag][1].to2) < 1:
+                        continue
                 
                 extractor = self.tag_to_unit[self.extractors_reversed[drone.tag][0]]
-                if mineral_patch != None:
+                if extractor != None:
                     drop_off_point = self.extractors_reversed[drone.tag][1]
                     self.do(drone.move(drop_off_point.to2))
                     #self.client.debug_sphere_out(drop_off_point, .5, color = Point3((0, 255, 0)))
@@ -2900,10 +2917,16 @@ class ZergBot(sc2.BotAI):
                 
             else:
                 extractor = self.tag_to_unit[self.extractors_reversed[drone.tag][0]]
-                if mineral_patch != None:
+                if extractor != None:
                     if drone.distance_to(extractor) < 2 or drone.position.distance_to_closest(self.units(DRONE).tags_not_in([drone.tag])) < 1.2:
+                        if type(drone.order_target) == int:
+                            if drone.order_target == extractor.tag:
+                                continue
                         self.do(drone.gather(extractor))
                     else:
+                        if type(drone.order_target) == Point2:
+                            if drone.order_target.distance_to(self.extractors_reversed[drone.tag][2].to2) < 1:
+                                continue
                         pick_up_point = self.extractors_reversed[drone.tag][2]
                         self.do(drone.move(pick_up_point.to2))
                         #self.client.debug_sphere_out(pick_up_point, .5, color = Point3((255, 0, 0)))

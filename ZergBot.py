@@ -31,6 +31,8 @@ import random
 import math
 from enum import Enum
 
+import Plans
+
 class EnemyPlan:
     MACRO = 1
     TURTLE = 2
@@ -93,6 +95,8 @@ class MinerStatus(Enum):
     MINING = 3
 
 
+
+
 class BlankBot(sc2.BotAI):
     def __init__(self):
         self.i = True
@@ -106,6 +110,7 @@ class ZergBot(sc2.BotAI):
         self.unit_command_uses_self_do = True
         self.raw_affects_selection = True
         
+        self.current_plan = Plans.MacroLingBaneHydra
         self.has_debug = False
         self.debug_interval = 10
         self.unit_command_uses_self_do = True
@@ -113,6 +118,7 @@ class ZergBot(sc2.BotAI):
         self.injecting_queens = []
         self.creep_queens = []
         self.inactive_creep_tumors = []
+        self.current_plan = Plans.MacroLingBaneHydra
         self.build_order = [(0, self.build_drone),
                             (10, self.build_overlord),
                             (14, self.build_drone),
@@ -517,9 +523,14 @@ class ZergBot(sc2.BotAI):
         await self.update_enemy_units()
         await self.track_enemy_army_position()
         if self.build_step >= len(self.build_order):
+            await self.current_plan.use_larva(self)
+            await self.current_plan.make_expansions(self)
+            #await self.current_plan.expand_tech(self)
+            #await self.current_plan.get_upgrades(self)
+            
             await self.update_building_need()
-            await self.use_larva()
-            await self.make_expansions()
+            #await self.use_larva()
+            #await self.make_expansions()
             await self.expand_tech()
             await self.scout_with_lings()
             await self.micro()
@@ -644,28 +655,34 @@ class ZergBot(sc2.BotAI):
         
         new_expos = self.check_enemy_expansions()
         if new_expos[1]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[6]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+            if self.convert_location(Point2(self.overlord_positions[6])) in self.position_to_ovi_dict:
+                ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[6]))]
+                if self.units.tags_in([ovi_tag]):
+                    self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
         if new_expos[2]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[7]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+            if self.convert_location(Point2(self.overlord_positions[7])) in self.position_to_ovi_dict:
+                ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[7]))]
+                if self.units.tags_in([ovi_tag]):
+                    self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
         if new_expos[3]:
-            ovi_tag1 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[8]))]
-            if self.units.tags_in([ovi_tag1]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag1])[0])
-            ovi_tag2 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[12]))]
-            if self.units.tags_in([ovi_tag2]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag2])[0])
+            if self.convert_location(Point2(self.overlord_positions[8])) in self.position_to_ovi_dict:
+                ovi_tag1 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[8]))]
+                if self.units.tags_in([ovi_tag1]):
+                    self.position_new_overlord(self.units.tags_in([ovi_tag1])[0])
+            if self.convert_location(Point2(self.overlord_positions[12])) in self.position_to_ovi_dict:
+                ovi_tag2 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[12]))]
+                if self.units.tags_in([ovi_tag2]):
+                    self.position_new_overlord(self.units.tags_in([ovi_tag2])[0])
         if new_expos[4]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[9]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+            if self.convert_location(Point2(self.overlord_positions[9])) in self.position_to_ovi_dict:
+                ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[9]))]
+                if self.units.tags_in([ovi_tag]):
+                    self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
         if new_expos[5]:
-            ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[20]))]
-            if self.units.tags_in([ovi_tag]):
-                self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+            if self.convert_location(Point2(self.overlord_positions[20])) in self.position_to_ovi_dict:
+                ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[20]))]
+                if self.units.tags_in([ovi_tag]):
+                    self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
     
 
                 
@@ -2008,8 +2025,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.ROACHWARREN, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(ROACHWARREN, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.ROACHWARREN, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(ROACHWARREN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(ROACHWARREN, self.build_location):
             #print("invalid place")
@@ -2033,8 +2050,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.BANELINGNEST, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(ROACHWARREN, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.BANELINGNEST, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(ROACHWARREN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(BANELINGNEST, self.build_location):
             #print("invalid place")
@@ -2057,8 +2074,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.EVOLUTIONCHAMBER, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(ROACHWARREN, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.EVOLUTIONCHAMBER, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(ROACHWARREN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(EVOLUTIONCHAMBER, self.build_location):
             #print("invalid place")
@@ -2081,8 +2098,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.HYDRALISKDEN, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(HYDRALISKDEN, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.HYDRALISKDEN, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(HYDRALISKDEN, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(HYDRALISKDEN, self.build_location):
             #print("invalid place")
@@ -2105,8 +2122,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.INFESTATIONPIT, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(INFESTATIONPIT, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.INFESTATIONPIT, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(INFESTATIONPIT, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(INFESTATIONPIT, self.build_location):
             #print("invalid place")
@@ -2129,8 +2146,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.SPIRE, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(SPIRE, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.SPIRE, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(SPIRE, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(SPIRE, self.build_location):
             #print("invalid place")
@@ -2169,8 +2186,8 @@ class ZergBot(sc2.BotAI):
             print("no place")
             builder = self.units.tags_in([self.builder_drone])[0]
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(UnitTypeId.NYDUSNETWORK, near = pool_location, max_distance = 10)
-            if not await self.can_place_single(NYDUSNETWORK, self.build_location):
+            self.build_location = await self.find_placement(UnitTypeId.NYDUSNETWORK, near = pool_location, max_distance = 6)
+            if self.build_location != None and not await self.can_place_single(NYDUSNETWORK, self.build_location):
                 self.build_location = None
         #elif not await self.can_place(NYDUSNETWORK, self.build_location):
             #print("invalid place")
@@ -2181,7 +2198,7 @@ class ZergBot(sc2.BotAI):
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
             self.do(builder.build(NYDUSNETWORK, self.build_location))
             
-    
+    """
     async def use_larva(self):
         # are any buildings needed
         if self.expansion_need == 100 or self.pending_upgrade == 1:
@@ -2237,7 +2254,7 @@ class ZergBot(sc2.BotAI):
                 builder_drone = self.select_build_worker(expansion_location)
                 self.remove_drone(builder_drone.tag)
                 self.do(builder_drone.build(HATCHERY, expansion_location))
-        
+        """
         
             
     async def expand_tech(self):
@@ -2947,7 +2964,7 @@ run_game(maps.get("LightshadeLE"), [
 # myunits = Units([], self)
                 
 
-
+# Computer(Race.Terran, Difficulty.VeryHard)
 
 
 

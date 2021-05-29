@@ -124,41 +124,48 @@ class ZergBot(sc2.BotAI):
                             (14, self.build_drone),
                             (28, self.build_drone),
                             (28, self.build_drone),
-                            (34, self.build_pool),
-                            (41, self.build_drone),
-                            (45, self.build_drone),
-                            (55, self.build_hatch),
-                            (68, self.build_drone),
-                            (86, self.build_ling),
-                            (86, self.build_ling),
-                            (86, self.build_ling),
-                            (87, self.build_gas),
-                            (89, self.build_queen),
-                            (96, self.build_overlord),
-                            (103, self.send_ling_scouts),
-                            (106, self.build_drone),
-                            (116, self.build_drone)]
+                            (30, self.build_drone),
+                            (30, self.build_gas),
+                            (42, self.build_drone),
+                            (43, self.build_pool),
+                            (52, self.build_drone),
+                            (62, self.build_drone),
+                            (62, self.build_hatch)]
         """
-        [(0, self.build_drone),
-        (12, self.build_overlord),
-        (16, self.build_drone),
-        (30, self.build_drone),
-        (30, self.build_drone),
-        (37, self.build_pool),
-        (44, self.build_drone),
-        (50, self.build_drone),
-        (72, self.build_hatch),
-        (74, self.build_drone),
-        (87, self.build_ling),
-        (87, self.build_ling),
-        (87, self.build_ling),
-        (93, self.build_queen),
-        (95, self.build_gas),
-        (101, self.build_overlord),
-        (106, self.send_ling_scouts),
-        (109, self.build_drone),
-        (120, self.build_drone)]
-        
+        (0, self.build_drone),
+                            (10, self.build_overlord),
+                            (14, self.build_drone),
+                            (28, self.build_drone),
+                            (28, self.build_drone),
+                            (30, self.build_drone),
+                            (30, self.build_gas),
+                            (42, self.build_drone),
+                            (43, self.build_pool),
+                            (52, self.build_drone),
+                            (62, self.build_drone),
+                            (62, self.build_hatch)
+                            
+        Pool, Hatch, Gas
+        (0, self.build_drone),
+        (10, self.build_overlord),
+        (14, self.build_drone),
+        (28, self.build_drone),
+        (28, self.build_drone),
+        (34, self.build_pool),
+        (41, self.build_drone),
+        (45, self.build_drone),
+        (55, self.build_hatch),
+        (68, self.build_drone),
+        (86, self.build_ling),
+        (86, self.build_ling),
+        (86, self.build_ling),
+        (87, self.build_gas),
+        (89, self.build_queen),
+        (96, self.build_overlord),
+        (103, self.send_ling_scouts),
+        (106, self.build_drone),
+        (116, self.build_drone)
+
         
         (42, 92),	#	enemy natural pillar
         (122, 78),	#	natural enterance pillar
@@ -205,6 +212,10 @@ class ZergBot(sc2.BotAI):
         # special
         (58, 119)	#	elevator
         """
+        
+        self.unit_production_times = {DRONE: [],
+                                      OVERLORD: [],
+                                      QUEEN: []}
         
         self.tag_to_unit = {} # {unit_tag : unit} updated each iteration
         self.add_new_base = None
@@ -500,6 +511,15 @@ class ZergBot(sc2.BotAI):
     async def on_start(self):
         self.client.game_step: int = 2
         self.set_up_map_graph()
+        drone_file = open("drone_times.txt", "w")
+        drone_file.write("")
+        drone_file.close()
+        overlord_file = open("overlord_times.txt", "w")
+        overlord_file.write("")
+        overlord_file.close()
+        queen_file = open("queen_times.txt", "w")
+        queen_file.write("")
+        queen_file.close()
     
     async def on_step(self, iteration):
         self.update_unit_tags()
@@ -1073,28 +1093,7 @@ class ZergBot(sc2.BotAI):
                 self.enemy_attack_point = Point2(self.army_positions[most_likely_path[len(most_likely_path) - 1]]).closest(self.townhalls)
                 
         # 0, 2, 7, 8, 9, 23
-        """
-        attacking_units = self.enemy_units.subgroup(unit for unit in self.enemy_units if self.has_creep(unit.position))
-        lone_enemy_units = []
-        if len(attacking_units) < 2:
-            for unit in attacking_units:
-                lone_enemy_units.append(unit)
-        else:
-            for unit in attacking_units:
-                if unit.position.distance_to(unit.position.sort_by_distance(attacking_units)[1]) > 5:
-                    lone_enemy_units.append(unit)
-        attacking_units = attacking_units.subgroup(unit for unit in attacking_units if unit not in lone_enemy_units)
-        
-        if len(attacking_units) >= 2:
-            self.enemy_army_position = attacking_units.center
-            height = self.get_terrain_z_height(self.enemy_army_position)
-            self._client.debug_sphere_out(Point3((self.enemy_army_position[0], self.enemy_army_position[1], height)), 4, color = Point3((255, 0, 0)))
-        else:
-            self.enemy_army_position == None
-            
-        for unit in lone_enemy_units:
-            self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 0, 255)))
-        """
+
     
     async def update_proxy_progress(self):
         # update enemy units in proxy
@@ -2722,7 +2721,8 @@ class ZergBot(sc2.BotAI):
                 self.extractors[patch] = (self.extractors[patch][0], self.extractors[patch][1], None)
             return
 
-
+        
+        
     def convert_location(self, location):
         if self.start_location == Point2((143.5, 32.5)):
             return Point2(location)

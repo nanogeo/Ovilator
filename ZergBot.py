@@ -212,10 +212,10 @@ class ZergBot(sc2.BotAI):
         # special
         (58, 119)	#	elevator
         """
-        
-        self.unit_production_times = {DRONE: [],
-                                      OVERLORD: [],
+        self.unit_production_times = {DRONE: [],	
+                                      OVERLORD: [],	
                                       QUEEN: []}
+        
         
         self.tag_to_unit = {} # {unit_tag : unit} updated each iteration
         self.add_new_base = None
@@ -302,6 +302,7 @@ class ZergBot(sc2.BotAI):
         self.creep_queen_state = QueenState.SPREAD_CREEP
         self.creep_coverage = 0
         
+        self.unit_ratio = None
         self.drone_need = 0
         self.queen_need = 0
         self.zergling_need = 0
@@ -511,6 +512,8 @@ class ZergBot(sc2.BotAI):
     async def on_start(self):
         self.client.game_step: int = 2
         self.set_up_map_graph()
+        if self.army_composition == ArmyComp.LING_BANE_HYDRA:
+            self.unit_ratio = (2, 2, 1)
         drone_file = open("drone_times.txt", "w")
         drone_file.write("")
         drone_file.close()
@@ -543,17 +546,19 @@ class ZergBot(sc2.BotAI):
         await self.update_enemy_units()
         await self.track_enemy_army_position()
         if self.build_step >= len(self.build_order):
-            await self.current_plan.use_larva(self)
-            await self.current_plan.make_expansions(self)
+            await self.current_plan.execute_plan(self)
+            #await self.current_plan.use_larva(self)
+            #await self.current_plan.make_expansions(self)
             #await self.current_plan.expand_tech(self)
             #await self.current_plan.get_upgrades(self)
             
-            await self.update_building_need()
+            #await self.update_building_need()
             #await self.use_larva()
             #await self.make_expansions()
-            await self.expand_tech()
+            #await self.expand_tech()
             await self.scout_with_lings()
             await self.micro()
+        
             
 
 ########################################
@@ -2254,7 +2259,10 @@ class ZergBot(sc2.BotAI):
                 self.remove_drone(builder_drone.tag)
                 self.do(builder_drone.build(HATCHERY, expansion_location))
         """
-        
+    def make_baneling(self):
+        lings = self.units(ZERGLING).ready
+        if len(lings) > 0:
+            self.do(lings[0](AbilityId.MORPHZERGLINGTOBANELING_BANELING))
             
     async def expand_tech(self):
         if self.time >= 240:

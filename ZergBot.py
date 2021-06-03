@@ -1303,15 +1303,16 @@ class ZergBot(sc2.BotAI):
         pixel_map = self.game_info.placement_grid
         for  i in range(0, pixel_map.width):
             for j in range(0, pixel_map.height):
-                if pixel_map.__getitem__((i, j)) and self.has_creep(Point2((i, j))):
+                point = Point2((i, j))
+                if pixel_map.__getitem__((i, j)) and self.has_creep(point):
                     # ignore any location inside the main
-                    if self.start_location.distance_to(Point2((i, j))) < 30:
+                    if self.start_location.distance_to(point) < 30:
                         continue
                     # ignore any point that would block an expo
-                    if Point2((i, j)).distance_to_closest(self.expansion_locations_list) < 4:
+                    if point.distance_to_closest(self.expansion_locations_list) < 4:
                         continue
                     # ignore points close to enemies
-                    if len(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) and Point2((i, j)).distance_to_closest(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) < 10:
+                    if len(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) and point.distance_to_closest(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) < 10:
                         continue
                     # find edges of creep
                     edge = False
@@ -1319,10 +1320,13 @@ class ZergBot(sc2.BotAI):
                         for l in range(j-1, j+2):
                             if pixel_map.__getitem__((k, l)) and not self.has_creep(Point2((k, l))):
                                 edge = True
+                                break
+                            if edge:
+                                break
                     if edge:
-                        height = self.get_terrain_z_height(Point2((i, j)))
+                        height = self.get_terrain_z_height(point)
                         self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
-                        locations.append(Point2((i, j)))
+                        locations.append(point)
         # sort the locations based on their distance from the natural and their distance to the closest active tumor
         if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
             locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         

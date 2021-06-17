@@ -13,6 +13,7 @@ from sc2.unit import Unit
 from sc2.units import Units
 
 import time
+import math
 
 import Enums
 
@@ -29,7 +30,6 @@ class Plan:
     
     @staticmethod    
     async def make_overlords(bot):
-        bot.add_debug_info("help")
         # Make Overlords
         all_larva = bot.units(UnitTypeId.LARVA)
         if len(all_larva) == 0:
@@ -67,6 +67,10 @@ class Plan:
     @staticmethod
     async def get_upgrades(bot):
         print("Error get_upgrades called on Plan class")
+
+    @staticmethod
+    async def micro(bot):
+        print("Error micro called on Plan class")
     
 
 class LingBaneHydraBase(Plan):
@@ -270,7 +274,6 @@ class LingBaneHydraBase(Plan):
         return True
         
     
-    
 class MacroLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     def to_string():
@@ -368,8 +371,10 @@ class MacroLingBaneHydra(LingBaneHydraBase):
         elif bot.time > 480 and len(bot.structures(UnitTypeId.INFESTATIONPIT)) == 0:
             # build infestation pit
             if bot.can_afford(UnitTypeId.INFESTATIONPIT):
+                bot.add_debug_info("make inf pit")
                 await bot.build_building(UnitTypeId.INFESTATIONPIT)
             else:
+                bot.add_debug_info("can't make infestation pit")
                 return False
         elif bot.time > 480 and len(bot.structures(UnitTypeId.EXTRACTOR)) < 6:
             # build 6th extractor
@@ -400,7 +405,6 @@ class MacroLingBaneHydra(LingBaneHydraBase):
         return True    
     
     
-
 class BuildArmyLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     def to_string():
@@ -584,6 +588,7 @@ class TechLingBaneHydra(LingBaneHydraBase):
         return True
         
         
+
 class MacroRoachHydra(Plan):
     conditions = []
     
@@ -632,6 +637,7 @@ class TechRoachHydra(Plan):
         print("could get some upgrades")
         
         
+
 class MacroRoachSwarmHost(Plan):
     conditions = []
     
@@ -679,19 +685,193 @@ class TechRoachSwarmHost(Plan):
     async def get_upgrades(bot):
         print("could get some upgrades")
         
+
+
+class ABCRoachTimingBase(Plan):
+    """
+    2:20 3rd bases
+    3:30 roach warren
+    3:50 2x gas
+    4:00 lair
+    ovi speed
+    41 drones
+    4-6 queens
+    """
+
+    @staticmethod
+    def test_conditions(bot):
+        return 0
+    
+    @staticmethod
+    async def execute_plan(bot):
+        await ABCRoachTimingBase.micro(bot)
+
+        if await ABCRoachTimingBase.make_overlords(bot):
+            if await ABCRoachTimingBase.make_expansions(bot):
+                if await ABCRoachTimingBase.expand_tech(bot):
+                    if await ABCRoachTimingBase.make_drones(bot):
+                        await ABCRoachTimingBase.make_army(bot)
+    
+    @staticmethod
+    async def make_expansions(bot):
+        if len(bot.townhalls) + bot.already_pending(UnitTypeId.HATCHERY) < 3:
+            if bot.minerals >= 300:
+                bot.last_expansion_time = bot.time
+                expansion_location = await bot.get_next_expansion()
+                builder_drone = bot.select_build_worker(expansion_location)
+                bot.remove_drone(builder_drone.tag)
+                bot.do(builder_drone.build(UnitTypeId.HATCHERY, expansion_location))
+            else:
+                return False
+        return True
+
+    @staticmethod
+    async def expand_tech(bot):
+        if not await MacroLingBaneHydra.get_upgrades(bot):
+            return False
         
+        if bot.time > 210 and len(bot.structures(UnitTypeId.ROACHWARREN)) < 1:
+            # build roach warren
+            if bot.can_afford(UnitTypeId.ROACHWARREN):
+                await bot.build_building(UnitTypeId.ROACHWARREN)
+            else:
+                return False
+        elif bot.time > 230 and len(bot.structures(UnitTypeId.EXTRACTOR)) < 3:
+            # build gas 2 and 3
+            if bot.can_afford(UnitTypeId.EXTRACTOR):
+                await bot.build_building(UnitTypeId.EXTRACTOR)
+            else:
+                return False
+        elif bot.time > 240 and len(bot.structures({UnitTypeId.LAIR, UnitTypeId.HIVE})) + bot.already_pending(UnitTypeId.LAIR) == 0:
+            # build lair
+            if bot.can_afford(AbilityId.UPGRADETOLAIR_LAIR):
+                    try: 
+                        hatch = bot.townhalls.ready.idle.random
+                    except:
+                        print("no hatches")
+                    else:
+                        for ability in await bot.get_available_abilities(hatch):
+                            if ability == AbilityId.UPGRADETOLAIR_LAIR:
+                                bot.do(hatch(AbilityId.UPGRADETOLAIR_LAIR))
+            else:
+                return False
+
+    @staticmethod
+    async def make_drones(bot):
+        # Queens
+        queen_need = 4
+        if len(bot.units(UnitTypeId.QUEEN)) + bot.already_pending(UnitTypeId.QUEEN) < queen_need and bot.supply_used + 2 <= bot.supply_cap and len(bot.townhalls.ready.idle) > 0:
+            if bot.minerals >= 150:
+                await bot.build_queen()
+                f = open("queen_times.txt", "a")
+                f.write("Current Queens: " + str(len(bot.units(UnitTypeId.QUEEN)) + bot.already_pending(UnitTypeId.QUEEN)) + " Queen need: " + str(queen_need) + " Time: " + bot.time_formatted + "\n")
+                f.close()
+            else:
+                return False
+            
+        # Larva
+        all_larva = bot.units(UnitTypeId.LARVA)
+        if len(all_larva) == 0:
+            return True
+        i = 0
+        drone_need = 41
+        while (i < len(all_larva) and bot.supply_workers + bot.already_pending(UnitTypeId.DRONE) < drone_need and bot.supply_used + 1 + i <= bot.supply_cap):
+            if bot.minerals >= 50:
+                bot.do(all_larva[i].train(UnitTypeId.DRONE))
+                g = open("drone_times.txt", "a")
+                g.write("Larva #" + str(i) + " Current Drones: " + str(bot.supply_workers + bot.already_pending(UnitTypeId.DRONE)) + " Drone need: " + str(drone_need) + " Time: " + bot.time_formatted + "\n")
+                g.close()            
+                drone_need -= 1
+                i += 1
+            else:
+                return False
+        return True
+
+    @staticmethod
+    async def make_army(bot):
+        if len(bot.structures(UnitTypeId.SPAWNINGPOOL).ready) == 0:
+            return False
+        all_larva = bot.units(UnitTypeId.LARVA)
+        if len(all_larva) == 0:
+            return True
+        i = 0
+        lings = (len(bot.units(UnitTypeId.ZERGLING)) + bot.already_pending(UnitTypeId.ZERGLING))
+        ling_need = math.inf
+        if bot.time < 330:
+            ling_need = 6
+        roaches = (len(bot.units(UnitTypeId.ROACH)) + bot.already_pending(UnitTypeId.ROACH))
+        roach_need = 2
+        if bot.time < 330:
+            roach_need = 8
+        ravagers = (len(bot.units(UnitTypeId.RAVAGER)) + bot.already_pending(UnitTypeId.RAVAGER))
+        
+        while (i < len(all_larva) and bot.supply_used + 1 + i <= bot.supply_cap):
+            if len(bot.structures(UnitTypeId.ROACHWARREN)) > 0 and roaches < roach_need and bot.vespene >= 25:
+                if bot.can_afford(UnitTypeId.ROACH):
+                    bot.do(all_larva[i].train(UnitTypeId.ROACH))
+                    i += 1
+                    roaches += 1
+                else:
+                    return False
+            elif lings < ling_need:
+                if bot.can_afford(UnitTypeId.ZERGLING):
+                    bot.do(all_larva[i].train(UnitTypeId.ZERGLING))
+                    i += 1
+                    lings += 2
+                else:
+                    return False
+        
+        for roach in bot.units(UnitTypeId.ROACH).ready:
+            if bot.vespene >= 75:
+                if bot.can_afford(UnitTypeId.RAVAGER):
+                    bot.do(roach(AbilityId.MORPHTORAVAGER_RAVAGER))
+                else:
+                    return False
+
+
+        return True
+
+
+class ABCRoachTimingPrep(ABCRoachTimingBase):
+    
+    @staticmethod
+    def test_conditions(bot):
+        value = super(ABCRoachTimingPrep, ABCRoachTimingPrep).test_conditions(bot)
+        if bot.time < 330:
+            value += 5
+        else:
+            value -= 5
+        return value
+        
+class ABCRoachTimingAttacking(ABCRoachTimingBase):
+
+    @staticmethod
+    def test_conditions(bot):
+        value = super(ABCRoachTimingAttacking, ABCRoachTimingAttacking).test_conditions(bot)
+        if bot.time > 330:
+            value += 5
+        else:
+            value -= 5
+        return value
+
+
+
 class AntiProxyRax(Plan):
     conditions = []
     
+    @staticmethod
     async def use_larva(bot):
         print("used some larva")
         
+    @staticmethod
     async def make_expansions(bot):
         print("maybe make an expo")
     
+    @staticmethod
     async def expand_tech(bot):
         print("expand our tech maybe")
     
+    @staticmethod
     async def get_upgrades(bot):
         print("could get some upgrades")
         

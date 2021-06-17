@@ -23,6 +23,7 @@ from dijkstra import Graph
 from dijkstra import DijkstraSPF
 import random
 import math
+import numpy
 from enum import Enum
 
 import Plans
@@ -232,10 +233,17 @@ class ZergBot(sc2.BotAI):
                                 (114.623291015625, 65.232421875),
                                 (139.1455078125, 65.218017578125)]
         self.creep_spread_to = []
+        self.current_creep_tumor_tags = []
         self.updated_creep = False
         self.creep_queen_state = Enums.QueenState.SPREAD_CREEP
         self.creep_coverage = 0
-        
+        self.quad_size_x = 0
+        self.quad_size_y = 0
+        self.current_quad_x = 0
+        self.current_quad_y = 0
+        self.my_pixel_map = []
+
+
         self.unit_ratio = None
 
         
@@ -418,6 +426,10 @@ class ZergBot(sc2.BotAI):
     async def on_start(self):
         self.client.game_step: int = 2
         self.set_up_map_graph()
+        pixel_map = self.game_info.placement_grid
+        self.quad_size_x = pixel_map.width * .25
+        self.quad_size_y = pixel_map.height * .25
+        self.my_pixel_map = numpy.zeros((pixel_map.width, pixel_map.height))
         if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA:
             self.unit_ratio = (2, 2, 1)
         drone_file = open("drone_times.txt", "w")
@@ -1153,14 +1165,17 @@ class ZergBot(sc2.BotAI):
 ########################################
 
     async def spread_creep(self):
-        for tumor in self.structures(CREEPTUMORBURROWED):
+        for tumor in self.structures().tags_in(self.current_creep_tumor_tags):
             if AbilityId.BUILD_CREEPTUMOR_TUMOR in await self.get_available_abilities(tumor):
                 for spot in self.creep_spread_to:
                     if tumor.distance_to_squared(spot) < 100:
                         self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, spot))
                         self.inactive_creep_tumors.append(tumor)
                         self.creep_spread_to.remove(spot)
+                        self.current_creep_tumor_tags.remove(tumor.tag)
                         break
+            else:
+                break
         
         if self.creep_queen_state == Enums.QueenState.SPREAD_CREEP:
             await self.place_creep_tumors()
@@ -1195,6 +1210,36 @@ class ZergBot(sc2.BotAI):
             if self.units.tags_in([queen])[0].energy >= 75 and self.units.tags_in([queen])[0].is_idle and len(self.creep_spread_to) > 0 :
                 self.do(self.units.tags_in([queen])[0](AbilityId.BUILD_CREEPTUMOR_QUEEN, Point2(self.creep_spread_to.pop(0))))
                 
+    def creep_test_one(self, point):
+        return self.start_location.distance_to(point) < 30
+    
+    def creep_test_one_fail(self):
+        return
+    
+    def creep_test_two(self, point):
+        return point.distance_to_closest(self.expansion_locations_list) < 4
+    
+    def creep_test_two_fail(self):
+        return
+
+    def creep_test_three(self, pixel_map, i, j):
+        for k in range(i-1, i+2):
+            for l in range(j-1, j+2):
+                if pixel_map.__getitem__((k, l)) and not self.has_creep(Point2((k, l))):
+                    return True
+                    break
+        
+        return False
+    
+    def creep_test_three_fail(self):
+        return
+
+    def creep_test_four(self, point):
+        return len(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) and point.distance_to_closest(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) < 10
+    
+    def creep_test_four_fail(self):
+        return
+    
     async def find_creep_spots(self):
         await self.update_creep_coverage()
         
@@ -1206,27 +1251,25 @@ class ZergBot(sc2.BotAI):
                 point = Point2((i, j))
                 if pixel_map.__getitem__((i, j)) and self.has_creep(point):
                     # ignore any location inside the main
-                    if self.start_location.distance_to(point) < 30:
+                    if self.creep_test_one(point):
+                        self.creep_test_one_fail()
                         continue
                     # ignore any point that would block an expo
-                    if point.distance_to_closest(self.expansion_locations_list) < 4:
-                        continue
-                    # ignore points close to enemies
-                    if len(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) and point.distance_to_closest(self.enemy_units.exclude_type({DRONE, SCV, PROBE})) < 10:
+                    if self.creep_test_two(point):
+                        self.creep_test_two_fail()
                         continue
                     # find edges of creep
-                    edge = False
-                    for k in range(i-1, i+2):
-                        for l in range(j-1, j+2):
-                            if pixel_map.__getitem__((k, l)) and not self.has_creep(Point2((k, l))):
-                                edge = True
-                                break
-                            if edge:
-                                break
-                    if edge:
-                        height = self.get_terrain_z_height(point)
-                        self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
-                        locations.append(point)
+                    if not self.creep_test_three(pixel_map, i, j):
+                        self.creep_test_three_fail()
+                        continue
+                    # ignore points close to enemies
+                    if self.creep_test_four(point):
+                        self.creep_test_four_fail()
+                        continue
+
+                    height = self.get_terrain_z_height(point)
+                    self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
+                    locations.append(point)
         # sort the locations based on their distance from the natural and their distance to the closest active tumor
         if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
             locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
@@ -1927,12 +1970,14 @@ class ZergBot(sc2.BotAI):
             self.remove_drone(self.builder_drone)
             if not self.builder_drone in self.tag_to_unit.keys():
                 self.builder_drone = None
+                self.add_debug_info("no builder drone")
                 return False
         if self.build_location == None:
             pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(HATCHERY, near = pool_location, max_distance = 10)
+            self.build_location = await self.find_placement(HATCHERY, near = pool_location, max_distance = 20)
             if self.build_location != None and not await self.can_place_single(building, self.build_location):
                 self.build_location = None
+                self.add_debug_info("no build location")
                 return False
         #if AbilityId.HARVEST_GATHER in self.tag_to_unit[self.builder_drone].orders:
         if self.build_location != None:
@@ -1940,6 +1985,7 @@ class ZergBot(sc2.BotAI):
             height = self.get_terrain_z_height(self.build_location)
             self._client.debug_sphere_out(Point3((self.build_location[0], self.build_location[1], height)), 1, color = Point3((255, 255, 0)))
             self.do(builder.build(building, self.build_location))
+            self.add_debug_info("build " + str(building))
 
     async def build_gas(self):
         print("build gas??")
@@ -2336,6 +2382,8 @@ class ZergBot(sc2.BotAI):
                 self.do(swarm_host.smart(building))
         elif building.type_id == UnitTypeId.EXTRACTOR:
             self.extractors[building.tag] = (None, None, None)
+        elif building.type_id == UnitTypeId.CREEPTUMOR or building.type_id == UnitTypeId.CREEPTUMORBURROWED or building.type_id == UnitTypeId.CREEPTUMORQUEEN:
+            self.current_creep_tumor_tags.append(building.tag)
     
     async def on_building_construction_started(self, unit):
         if unit.type_id == UnitTypeId.HATCHERY:

@@ -29,7 +29,7 @@ from enum import Enum
 import Plans
 import Enums
 
-
+import matplotlib.pyplot as plt
 
 
 class BlankBot(sc2.BotAI):
@@ -241,8 +241,11 @@ class ZergBot(sc2.BotAI):
         self.quad_size_y = 0
         self.current_quad_x = 0
         self.current_quad_y = 0
+        self.quad_status = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+        self.quad_creep_coverage = [[(0, 0), (0, 0), (0, 0), (0, 0)], [(0, 0), (0, 0), (0, 0), (0, 0)], [(0, 0), (0, 0), (0, 0), (0, 0)], [(0, 0), (0, 0), (0, 0), (0, 0)]]
         self.my_pixel_map = []
-
+        self.set_of_non_creep_points = [[set(), set(), set(), set()], [set(), set(), set(), set()], [set(), set(), set(), set()], [set(), set(), set(), set()]]
+        self.quad_creep_locations = [[[], [], [], []], [[], [], [], []], [[], [], [], []], [[], [], [], []]]
 
         self.unit_ratio = None
 
@@ -427,9 +430,9 @@ class ZergBot(sc2.BotAI):
         self.client.game_step: int = 2
         self.set_up_map_graph()
         pixel_map = self.game_info.placement_grid
-        self.quad_size_x = pixel_map.width * .25
-        self.quad_size_y = pixel_map.height * .25
-        self.my_pixel_map = numpy.zeros((pixel_map.width, pixel_map.height))
+        self.quad_size_x = math.floor(pixel_map.width * .25)
+        self.quad_size_y = math.floor(pixel_map.height * .25)
+        #self.my_pixel_map = numpy.zeros((pixel_map.width, pixel_map.height))
         if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA:
             self.unit_ratio = (2, 2, 1)
         drone_file = open("drone_times.txt", "w")
@@ -447,6 +450,7 @@ class ZergBot(sc2.BotAI):
         self.update_unit_tags()
         if iteration == 1:
             self.split_drones()
+
         if self.add_new_base != None:
             for mineral_field in self.all_units.mineral_field.closer_than(10, self.tag_to_unit[self.add_new_base].position):
                 if mineral_field.is_snapshot:
@@ -458,7 +462,7 @@ class ZergBot(sc2.BotAI):
         
         await self.get_upgrades()
         await self.inject_larva()
-        await self.update_creep()
+        await self.update_creep(iteration)
         await self.spread_creep()
         await self.position_overlords()
         await self.scouting()
@@ -1176,7 +1180,9 @@ class ZergBot(sc2.BotAI):
                         break
             else:
                 break
-        
+
+        await self.place_creep_tumors()    
+        """
         if self.creep_queen_state == Enums.QueenState.SPREAD_CREEP:
             await self.place_creep_tumors()
             if self.creep_coverage >= .4 or self.enemy_army_state == Enums.EnemyArmyState.PREPARING_ATTACK:
@@ -1196,7 +1202,7 @@ class ZergBot(sc2.BotAI):
         elif self.creep_queen_state == Enums.QueenState.DEFEND:
             if self.creep_coverage < .6 and not self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
                 print("creep receeded to <60%, start placing tumors again")
-                self.creep_queen_state = Enums.QueenState.SPREAD_CAREFULLY
+                self.creep_queen_state = Enums.QueenState.SPREAD_CAREFULLY"""
         
             
     
@@ -1223,12 +1229,21 @@ class ZergBot(sc2.BotAI):
         return
 
     def creep_test_three(self, pixel_map, i, j):
+        x_quad = int(i / self.quad_size_x)
+        y_quad = int(j / self.quad_size_y)
         for k in range(i-1, i+2):
             for l in range(j-1, j+2):
-                if pixel_map.__getitem__((k, l)) and not self.has_creep(Point2((k, l))):
+                if k == 0 and l == 0:
+                    continue
+                if (k, l) in self.set_of_non_creep_points[x_quad][y_quad]:
                     return True
-                    break
-        
+                neighbor_x_quad = x_quad + k - i
+                neighbor_y_quad = y_quad + l - j
+                if neighbor_x_quad < 0 or neighbor_x_quad >= 4 or neighbor_y_quad < 0 or neighbor_y_quad >= 4:
+                    continue
+                if (k, l) in self.set_of_non_creep_points[neighbor_x_quad][neighbor_y_quad]:
+                    return True
+
         return False
     
     def creep_test_three_fail(self):
@@ -1240,16 +1255,17 @@ class ZergBot(sc2.BotAI):
     def creep_test_four_fail(self):
         return
     
-    async def find_creep_spots(self):
-        await self.update_creep_coverage()
-        
+    def find_quad_creep_spots(self):
         locations = []
-        current_tumors = self.structures(CREEPTUMOR) + self.structures(CREEPTUMORBURROWED)
         pixel_map = self.game_info.placement_grid
-        for  i in range(0, pixel_map.width):
-            for j in range(0, pixel_map.height):
+        for  i in range(self.current_quad_x * self.quad_size_x, (self.current_quad_x + 1) * self.quad_size_x):
+            for j in range(self.current_quad_y * self.quad_size_y, (self.current_quad_y + 1) * self.quad_size_y):
                 point = Point2((i, j))
                 if pixel_map.__getitem__((i, j)) and self.has_creep(point):
+                    # find edges of creep
+                    if not self.creep_test_three(pixel_map, i, j):
+                        self.creep_test_three_fail()
+                        continue
                     # ignore any location inside the main
                     if self.creep_test_one(point):
                         self.creep_test_one_fail()
@@ -1257,10 +1273,6 @@ class ZergBot(sc2.BotAI):
                     # ignore any point that would block an expo
                     if self.creep_test_two(point):
                         self.creep_test_two_fail()
-                        continue
-                    # find edges of creep
-                    if not self.creep_test_three(pixel_map, i, j):
-                        self.creep_test_three_fail()
                         continue
                     # ignore points close to enemies
                     if self.creep_test_four(point):
@@ -1270,7 +1282,17 @@ class ZergBot(sc2.BotAI):
                     height = self.get_terrain_z_height(point)
                     self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
                     locations.append(point)
-        # sort the locations based on their distance from the natural and their distance to the closest active tumor
+        self.quad_creep_locations[self.current_quad_x][self.current_quad_y] = locations
+        self.sort_creep_spots()
+   
+    def sort_creep_spots(self):
+        locations = []
+        for i in range(0, 4):
+            for j in range(0, 4):
+                locations.extend(self.quad_creep_locations[i][j])
+
+        current_tumors = self.structures(CREEPTUMOR) + self.structures(CREEPTUMORBURROWED)
+
         if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
             locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
         else:
@@ -1279,54 +1301,56 @@ class ZergBot(sc2.BotAI):
         for pos in self.creep_locations:
             if (len(self.structures(CREEPTUMOR)) == 0 or self.convert_location(Point2(pos)).distance_to_closest(current_tumors) > 2) and self.has_creep(self.convert_location(Point2(pos))):
                 locations.insert(0, self.convert_location(Point2(pos)))
-        return locations
+        
+        self.creep_spread_to = locations
+
+    async def update_creep(self, iteration):
+        if self.quad_status[self.current_quad_x][self.current_quad_y]:
+            self.update_creep_quadrant()
+            self.find_quad_creep_spots()
+        elif iteration % 16 == iteration % 160:
+            self.update_creep_quadrant()
+            self.find_quad_creep_spots()
+        
+
+        self.current_quad_x += 1
+        if self.current_quad_x >= 4:
+            self.current_quad_x = 0
+            self.current_quad_y += 1
+            if self.current_quad_y >= 4:
+                self.current_quad_y = 0
+            
+
     
-    async def update_creep(self):
-        if not self.updated_creep and int(self.time) % 2 == 0:
-            self.updated_creep = True
-            self.creep_spread_to = await self.find_creep_spots()
-        elif self.updated_creep and int(self.time) % 2 == 1:
-            self.updated_creep = False
-    
-    async def update_creep_coverage(self):
+    def update_creep_quadrant(self):
         pixel_map = self.game_info.placement_grid
+        self.set_of_non_creep_points[self.current_quad_x][self.current_quad_y] = set()
         valid_points = 0
         points_with_creep = 0
-        for  i in range(0, pixel_map.width, 2):
-            for j in range(0, pixel_map.height, 2):
+        for i in range(self.current_quad_x * self.quad_size_x, (self.current_quad_x + 1) * self.quad_size_x):
+            for j in range(self.current_quad_y * self.quad_size_y, (self.current_quad_y + 1) * self.quad_size_y):
                 if pixel_map.__getitem__((i, j)):
                     valid_points += 1
                     if self.has_creep(Point2((i, j))):
                         points_with_creep += 1
+                    else:
+                        self.set_of_non_creep_points[self.current_quad_x][self.current_quad_y].add((i, j))
+        if self.quad_creep_coverage[self.current_quad_x][self.current_quad_y][0] != points_with_creep:
+            self.quad_creep_coverage[self.current_quad_x][self.current_quad_y] = (points_with_creep, valid_points)
+            self.quad_status[self.current_quad_x][self.current_quad_y] = 1
+            self.update_creep_coverage()
+        else:
+            self.quad_status[self.current_quad_x][self.current_quad_y] = 0
+
+    async def update_creep_coverage(self):
+        valid_points = 0
+        points_with_creep = 0
+        for i in self.quad_creep_coverage:
+            for j in i:
+                valid_points += j[1]
+                points_with_creep += j[0]
         self.creep_coverage = points_with_creep / valid_points
-   
-    def get_best_tumor_location(self, unit):
-        assert isinstance(unit, Unit)
-        possible_locations = []
-        for x in range(int(unit.position[0] - 10), int(unit.position[0] + 10), 2):
-            for y in range(int(unit.position[1] - 10), int(unit.position[1] + 10), 2):
-                loc = Point2((x, y))
-                # ignore any point not in the tumors range
-                if unit.position.distance_to(loc) >= 10:
-                    continue
-                # ignore any point that would block an expo
-                if loc.distance_to_closest(self.expansion_locations_list) < 4:
-                    continue
-                if self.has_creep(loc) and self.in_placement_grid(loc) and self.is_visible(loc):
-                    possible_locations.append(loc)
-        best_so_far = Point2((0, 0))
-        # find the point farthest from any inactive tumors
-        if len(possible_locations) > 0:
-            if len(self.inactive_creep_tumors) == 0:
-                best_so_far = self.enemy_start_locations[0].closest(possible_locations)
-            else:
-                best_dist = 0
-                for loc in possible_locations:
-                    dist = loc.distance_to_closest(self.inactive_creep_tumors)
-                    if dist > best_dist:
-                        best_dist = dist
-                        best_so_far = loc
-        return best_so_far
+
 
     def spread_inject_queens(self):
         used_queens = []
@@ -2279,6 +2303,12 @@ class ZergBot(sc2.BotAI):
     async def display_debug_info(self):
         self._client.debug_text_screen(self.debug_message, (.1, .1), Point3((255, 0, 0)), 20)
         self.debug_message = self.current_plan.to_string() + "\n"
+        for i in range(3, -1, -1):
+            for j in range(0, 4):
+                if self.quad_status[i][j] == 0:
+                    self._client.debug_text_screen("\n"*(3-j) + " "*i + '0', (.2, .1), Point3((255, 0, 0)), 20)
+                else:
+                    self._client.debug_text_screen("\n"*(3-j) + " "*i + '1', (.2, .1), Point3((0, 255, 0)), 20)
 
         for i in range(0, len(self.spore_positions)):
             pos = self.convert_location(self.spore_positions[i])

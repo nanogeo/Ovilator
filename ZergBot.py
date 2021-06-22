@@ -18,6 +18,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.buff_id import BuffId
 from s2clientprotocol import raw_pb2 as raw_pb
 from s2clientprotocol import sc2api_pb2 as sc_pb
+from sc2.data import ActionResult
 
 from dijkstra import Graph
 from dijkstra import DijkstraSPF
@@ -43,7 +44,7 @@ class BlankBot(sc2.BotAI):
 class ZergBot(sc2.BotAI):
     def __init__(self):
         self.unit_command_uses_self_do = True
-        self.raw_affects_selection = True
+        self.raw_affects_selection = False
         
         self.debug_message = ""
         self.current_plan = Plans.MacroLingBaneHydra
@@ -1173,16 +1174,30 @@ class ZergBot(sc2.BotAI):
             if AbilityId.BUILD_CREEPTUMOR_TUMOR in await self.get_available_abilities(tumor):
                 for spot in self.creep_spread_to:
                     if tumor.distance_to_squared(spot) < 100:
+                        height = self.get_terrain_z_height(spot)
+                        self._client.debug_sphere_out(Point3((spot.x, spot.y, height)), .5, color = Point3((0, 255, 0)))
                         self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, spot))
                         self.inactive_creep_tumors.append(tumor)
                         self.creep_spread_to.remove(spot)
+                        self.current_creep_tumor_tags.remove(tumor.tag)
+                        return
+                closest_spot = tumor.position.closest(self.creep_spread_to)
+                vector = Point2((closest_spot.x - tumor.position.x, closest_spot.y - tumor.position.y))
+                vector_length = math.sqrt(vector.x * vector.x + vector.y * vector.y)
+                vector = Point2((vector.x / vector_length, vector.y / vector_length))
+                for i in range(8, 1, -1):
+                    possible_spot = tumor.position + vector * i
+                    height = self.get_terrain_z_height(possible_spot)
+                    self._client.debug_sphere_out(Point3((possible_spot.x, possible_spot.y, height)), .5, color = Point3((255, 0, 0)))
+                    if (await self._client.query_building_placement(self._game_data.abilities[AbilityId.ZERGBUILD_CREEPTUMOR.value], [Point2(possible_spot)]))[0] == ActionResult.Success:
+                        self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, possible_spot))
+                        self.inactive_creep_tumors.append(tumor)
+                        self.creep_spread_to.remove(closest_spot)
                         self.current_creep_tumor_tags.remove(tumor.tag)
                         break
             else:
                 break
 
-        await self.place_creep_tumors()    
-        """
         if self.creep_queen_state == Enums.QueenState.SPREAD_CREEP:
             await self.place_creep_tumors()
             if self.creep_coverage >= .4 or self.enemy_army_state == Enums.EnemyArmyState.PREPARING_ATTACK:
@@ -1202,7 +1217,7 @@ class ZergBot(sc2.BotAI):
         elif self.creep_queen_state == Enums.QueenState.DEFEND:
             if self.creep_coverage < .6 and not self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
                 print("creep receeded to <60%, start placing tumors again")
-                self.creep_queen_state = Enums.QueenState.SPREAD_CAREFULLY"""
+                self.creep_queen_state = Enums.QueenState.SPREAD_CAREFULLY
         
             
     
@@ -1279,8 +1294,8 @@ class ZergBot(sc2.BotAI):
                         self.creep_test_four_fail()
                         continue
 
-                    height = self.get_terrain_z_height(point)
-                    self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
+                    #height = self.get_terrain_z_height(point)
+                    #self._client.debug_sphere_out(Point3((i, j, height)), .5, color = Point3((255, 0, 255)))
                     locations.append(point)
         self.quad_creep_locations[self.current_quad_x][self.current_quad_y] = locations
         self.sort_creep_spots()
@@ -1291,7 +1306,7 @@ class ZergBot(sc2.BotAI):
             for j in range(0, 4):
                 locations.extend(self.quad_creep_locations[i][j])
 
-        current_tumors = self.structures(CREEPTUMOR) + self.structures(CREEPTUMORBURROWED)
+        current_tumors = self.structures({CREEPTUMOR, CREEPTUMORBURROWED, CREEPTUMORQUEEN})
 
         if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
             locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
@@ -1299,7 +1314,7 @@ class ZergBot(sc2.BotAI):
             locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))))
         # add all predetermined creep locations to the front
         for pos in self.creep_locations:
-            if (len(self.structures(CREEPTUMOR)) == 0 or self.convert_location(Point2(pos)).distance_to_closest(current_tumors) > 2) and self.has_creep(self.convert_location(Point2(pos))):
+            if (len(current_tumors) == 0 or self.convert_location(Point2(pos)).distance_to_closest(current_tumors) > 2) and self.has_creep(self.convert_location(Point2(pos))):
                 locations.insert(0, self.convert_location(Point2(pos)))
         
         self.creep_spread_to = locations
@@ -2301,6 +2316,7 @@ class ZergBot(sc2.BotAI):
         self.debug_message += info + "\n"
 
     async def display_debug_info(self):
+
         self._client.debug_text_screen(self.debug_message, (.1, .1), Point3((255, 0, 0)), 20)
         self.debug_message = self.current_plan.to_string() + "\n"
         for i in range(3, -1, -1):

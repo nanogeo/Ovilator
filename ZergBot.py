@@ -387,7 +387,7 @@ class ZergBot(sc2.BotAI):
         self.burrow_movement_researched = False
         self.army_state = Enums.ArmyState.CONSOLIDATING
         
-        self.army_composition = Enums.ArmyComp.LING_BANE_HYDRA
+        self.army_composition = Enums.ArmyComp.ROACH_HYDRA
         
 
 # muta micro
@@ -440,6 +440,8 @@ class ZergBot(sc2.BotAI):
         #self.my_pixel_map = numpy.zeros((pixel_map.width, pixel_map.height))
         if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA:
             self.unit_ratio = (2, 2, 1)
+        if self.army_composition == Enums.ArmyComp.ROACH_HYDRA:
+            self.unit_ratio = (1, 1)
         drone_file = open("drone_times.txt", "w")
         drone_file.write("")
         drone_file.close()
@@ -2019,8 +2021,7 @@ class ZergBot(sc2.BotAI):
                 self.add_debug_info("no builder drone")
                 return False
         if self.build_location == None:
-            pool_location = self.structures(SPAWNINGPOOL)[0].position
-            self.build_location = await self.find_placement(HATCHERY, near = pool_location, max_distance = 20)
+            self.build_location = await self.find_placement(HATCHERY, near = self.start_location, max_distance = 30)
             if self.build_location != None and not await self.can_place_single(building, self.build_location):
                 self.build_location = None
                 self.add_debug_info("no build location")

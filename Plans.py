@@ -282,11 +282,11 @@ class MacroLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     def test_conditions(bot):
         value = super(MacroLingBaneHydra, MacroLingBaneHydra).test_conditions(bot)
-        if bot.get_threat_level() <= 1:
+        if bot.threat_level <= 1:
             value += 5
-        if bot.get_difference_in_bases() < 1:
+        if bot.difference_in_bases < 1:
             value += 2
-        if bot.get_saturation() < 1:
+        if bot.saturation < 1:
             value += 2
         return value
     
@@ -413,7 +413,7 @@ class BuildArmyLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     def test_conditions(bot):
         value = super(MacroLingBaneHydra, MacroLingBaneHydra).test_conditions(bot)
-        if bot.get_threat_level() > 1:
+        if bot.threat_level > 1:
             value += 10
         return value
 
@@ -439,11 +439,11 @@ class TechLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     def test_conditions(bot):
         value = super(MacroLingBaneHydra, MacroLingBaneHydra).test_conditions(bot)
-        if bot.get_threat_level() <= .75:
+        if bot.threat_level <= .75:
             value += 5
-        if bot.get_difference_in_bases() > 1:
+        if bot.difference_in_bases > 1:
             value += 3
-        if bot.get_saturation() >= 1:
+        if bot.saturation >= 1:
             value += 3
         if bot.vespene < 100:
             value -= 10

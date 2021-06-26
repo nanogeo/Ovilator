@@ -55,6 +55,10 @@ class ZergBot(sc2.BotAI):
         self.injecting_queens = []
         self.creep_queens = []
         self.inactive_creep_tumors = []
+        self.enemy_army_supply = 0
+        self.difference_in_bases = 0
+        self.saturation = 0
+        self.threat_level = 0
         self.build_order = [(0, self.build_drone),
                             (10, self.build_overlord),
                             (14, self.build_drone),
@@ -1172,6 +1176,7 @@ class ZergBot(sc2.BotAI):
     async def spread_creep(self):
         for tumor in self.structures().tags_in(self.current_creep_tumor_tags):
             if AbilityId.BUILD_CREEPTUMOR_TUMOR in await self.get_available_abilities(tumor):
+                spread = False
                 for spot in self.creep_spread_to:
                     if tumor.distance_to_squared(spot) < 100:
                         height = self.get_terrain_z_height(spot)
@@ -1180,21 +1185,23 @@ class ZergBot(sc2.BotAI):
                         self.inactive_creep_tumors.append(tumor)
                         self.creep_spread_to.remove(spot)
                         self.current_creep_tumor_tags.remove(tumor.tag)
-                        return
-                closest_spot = tumor.position.closest(self.creep_spread_to)
-                vector = Point2((closest_spot.x - tumor.position.x, closest_spot.y - tumor.position.y))
-                vector_length = math.sqrt(vector.x * vector.x + vector.y * vector.y)
-                vector = Point2((vector.x / vector_length, vector.y / vector_length))
-                for i in range(8, 1, -1):
-                    possible_spot = tumor.position + vector * i
-                    height = self.get_terrain_z_height(possible_spot)
-                    self._client.debug_sphere_out(Point3((possible_spot.x, possible_spot.y, height)), .5, color = Point3((255, 0, 0)))
-                    if (await self._client.query_building_placement(self._game_data.abilities[AbilityId.ZERGBUILD_CREEPTUMOR.value], [Point2(possible_spot)]))[0] == ActionResult.Success:
-                        self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, possible_spot))
-                        self.inactive_creep_tumors.append(tumor)
-                        self.creep_spread_to.remove(closest_spot)
-                        self.current_creep_tumor_tags.remove(tumor.tag)
+                        spread = True
                         break
+                if not spread:
+                    closest_spot = tumor.position.closest(self.creep_spread_to)
+                    vector = Point2((closest_spot.x - tumor.position.x, closest_spot.y - tumor.position.y))
+                    vector_length = math.sqrt(vector.x * vector.x + vector.y * vector.y)
+                    vector = Point2((vector.x / vector_length, vector.y / vector_length))
+                    for i in range(8, 1, -1):
+                        possible_spot = tumor.position + vector * i
+                        height = self.get_terrain_z_height(possible_spot)
+                        self._client.debug_sphere_out(Point3((possible_spot.x, possible_spot.y, height)), .5, color = Point3((255, 0, 0)))
+                        if (await self._client.query_building_placement(self._game_data.abilities[AbilityId.ZERGBUILD_CREEPTUMOR.value], [Point2(possible_spot)]))[0] == ActionResult.Success:
+                            self.do(tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, possible_spot))
+                            self.inactive_creep_tumors.append(tumor)
+                            self.creep_spread_to.remove(closest_spot)
+                            self.current_creep_tumor_tags.remove(tumor.tag)
+                            break
             else:
                 break
 
@@ -2354,6 +2361,7 @@ class ZergBot(sc2.BotAI):
                 self.map_graph.add_edge(i, self.army_position_links[i][j], Point2(self.army_positions[i]).distance_to(Point2(self.army_positions[self.army_position_links[i][j]])))
 
     async def test_build_conditions(self):
+        self.update_plan_conditions()
         best_value = 0
         best_plan = self.current_plan
         for build in Plans.all_builds:
@@ -2364,28 +2372,40 @@ class ZergBot(sc2.BotAI):
         if self.current_plan != best_plan:
             self.current_plan = best_plan
 
+    def update_plan_conditions(self):
+        self.enemy_army_supply = self.update_enemy_army_supply()
+        self.difference_in_bases = self.update_difference_in_bases()
+        self.saturation = self.update_saturation()
+        self.threat_level = self.update_threat_level()
+
 
     def get_army_comp(self):
         return self.army_composition
 
-    def get_enemy_army_supply(self):
+    def update_enemy_army_supply(self):
         supply = 0
         for tag in self.enemy_unit_tags.keys():
             if self.enemy_unit_tags[tag] not in [PROBE, DRONE, SCV]:
                 supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
         return supply
     
-    def get_difference_in_bases(self):
+    def update_difference_in_bases(self):
+        """
+        hatches = len(self.townhalls)
+        hatches += self.already_pending(HATCHERY)
+        enemy_bases = sum(self.enemy_expos) + 1
+        return hatches - enemy_bases
+        """
         return (len(self.townhalls) + self.already_pending(HATCHERY)) - (sum(self.enemy_expos) + 1)
 
-    def get_saturation(self):
+    def update_saturation(self):
         drone_max = ((len(self.townhalls) + self.already_pending(HATCHERY)) * 16) + (len(self.structures(EXTRACTOR)) * 3)
         return self.supply_workers / drone_max
 
-    def get_threat_level(self):
+    def update_threat_level(self):
         if self.supply_army == 0:
             return math.inf
-        threat = self.get_enemy_army_supply() / self.supply_army
+        threat = self.enemy_army_supply / self.supply_army
         if self.enemy_army_state == Enums.EnemyArmyState.DEFENDING:
             threat *= .5
         elif self.enemy_army_state == Enums.EnemyArmyState.PREPARING_ATTACK:

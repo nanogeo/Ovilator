@@ -2,7 +2,7 @@
 from enum import Enum
 
 
-class EnemyPlan:
+class EnemyPlan(Enum):
     MACRO = 1
     TURTLE = 2
     TECHING = 3
@@ -10,43 +10,42 @@ class EnemyPlan:
     ALL_IN = 5
     CHEESE = 6
 
-class ArmyComp:
+class ArmyComp(Enum):
     LING_BANE_HYDRA = 1
     ROACH_HYDRA = 2
     LING_BANE_MUTA = 3
     ROACH_SWARM_HOST = 4
 
-class ArmyState:
+class ArmyState(Enum):
     CONSOLIDATING = 1
     RALLYING = 2
     ATTACKING = 3
     PROTECTING = 4
 
-class EnemyArmyState:
+class ArmyCondition(Enum):
+    DEFENSIVE = 1
+    OFFENSIVE = 2
+
+class EnemyArmyState(Enum):
     DEFENDING = 1
     PREPARING_ATTACK = 2
     MOVING_TO_ATTACK = 3
     
-class MutaGroupState:
+class MutaGroupState(Enum):
     CONSOLIDATING = 1
     MOVING_TO_RALLY = 2
     MOVING_TO_ATTACK = 3
     ATTACKING = 4
     RETREATING = 5
     
-class SwarmHostState:
+class SwarmHostState(Enum):
     WAITING = 1
     UNLOADING = 2
 
-class QueenState:
+class QueenState(Enum):
     SPREAD_CREEP = 1
     DEFEND = 2
     SPREAD_CAREFULLY = 3
-    
-class LingRunby:
-    ling_tags = []
-    path = []
-    target = None
     
 class ProxyStatus(Enum):
     NONE = 1

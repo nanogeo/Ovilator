@@ -125,12 +125,14 @@ class LingBaneHydraBase(Plan):
     async def make_expansions(bot):
         if (sum(bot.enemy_expos) + 1 >= len(bot.townhalls) + bot.already_pending(UnitTypeId.HATCHERY)) or (bot.minerals > 600 and not bot.already_pending(UnitTypeId.HATCHERY)):
             if bot.minerals >= 300:
+                bot.add_debug_info("make exop")
                 bot.last_expansion_time = bot.time
                 expansion_location = await bot.get_next_expansion()
                 builder_drone = bot.select_build_worker(expansion_location)
                 bot.remove_drone(builder_drone.tag)
                 bot.do(builder_drone.build(UnitTypeId.HATCHERY, expansion_location))
             else:
+                bot.add_debug_info("not enough to make expo")
                 return False
         return True
     
@@ -284,7 +286,7 @@ class MacroLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     def test_conditions(bot):
         value = super(MacroLingBaneHydra, MacroLingBaneHydra).test_conditions(bot)
-        if bot.threat_level <= 1:
+        if bot.threat_level <= .8:
             value += 5
         if bot.difference_in_bases < 1:
             value += 2
@@ -295,10 +297,10 @@ class MacroLingBaneHydra(LingBaneHydraBase):
     @staticmethod
     async def execute_plan(bot):
         if await MacroLingBaneHydra.make_overlords(bot):
-            if await MacroLingBaneHydra.expand_tech(bot):
-                if await MacroLingBaneHydra.make_expansions(bot):
+            if await MacroLingBaneHydra.make_expansions(bot):
+                if await MacroLingBaneHydra.expand_tech(bot):
                     if await MacroLingBaneHydra.make_drones(bot):
-                            await MacroLingBaneHydra.make_army(bot)
+                        await MacroLingBaneHydra.make_army(bot)
 
     
     @staticmethod
@@ -414,9 +416,13 @@ class BuildArmyLingBaneHydra(LingBaneHydraBase):
 
     @staticmethod
     def test_conditions(bot):
-        value = super(MacroLingBaneHydra, MacroLingBaneHydra).test_conditions(bot)
+        value = super(BuildArmyLingBaneHydra, BuildArmyLingBaneHydra).test_conditions(bot)
         if bot.threat_level > 1:
             value += 10
+        if bot.difference_in_bases >= 1:
+            value += 2
+        if bot.saturation >= .6 and bot.threat_level > .75:
+            value += 3
         return value
 
     @staticmethod

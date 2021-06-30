@@ -366,6 +366,9 @@ class MacroLingBaneHydra(LingBaneHydraBase):
                 await bot.build_building(UnitTypeId.HYDRALISKDEN)
             else:
                 return False
+        elif len(bot.townhalls.ready) < 3:
+            bot.add_debug_info("no 3rd base")
+            return True
         elif bot.time > 350 and len(bot.structures(UnitTypeId.EXTRACTOR)) < 5:
             # build 5th extractor
             if bot.can_afford(UnitTypeId.EXTRACTOR):
@@ -446,7 +449,7 @@ class TechLingBaneHydra(LingBaneHydraBase):
 
     @staticmethod
     def test_conditions(bot):
-        value = super(MacroLingBaneHydra, MacroLingBaneHydra).test_conditions(bot)
+        value = super(TechLingBaneHydra, TechLingBaneHydra).test_conditions(bot)
         if bot.threat_level <= .75:
             value += 5
         if bot.difference_in_bases > 1:
@@ -548,6 +551,9 @@ class TechLingBaneHydra(LingBaneHydraBase):
             else:
                 bot.add_debug_info("can't make hydra den")
                 return False
+        elif len(bot.townhalls.ready) < 3:
+            bot.add_debug_info("no 3rd base")
+            return True
         elif len(bot.structures(UnitTypeId.EXTRACTOR)) < 5:
             # build 5th extractor
             if bot.can_afford(UnitTypeId.EXTRACTOR):
@@ -698,6 +704,9 @@ class RoachHydraBase(Plan):
                                 bot.do(hatch(AbilityId.UPGRADETOLAIR_LAIR))
             else:
                 return False
+        elif len(bot.townhalls.ready) < 3:
+            bot.add_debug_info("no 3rd base")
+            return True
         elif bot.time > 330 and len(bot.structures(UnitTypeId.EXTRACTOR)) < 6:
             # build 4th, 5th and 6th gas
             if bot.can_afford(UnitTypeId.EXTRACTOR):
@@ -720,6 +729,9 @@ class RoachHydraBase(Plan):
             else:
                 bot.add_debug_info("can't make infestation pit")
                 return False
+        elif len(bot.townhalls.ready) < 4:
+            bot.add_debug_info("no 4th base")
+            return True
         elif bot.time > 420 and len(bot.structures(UnitTypeId.EXTRACTOR)) < 8:
             # build 7th and 8th gas
             if bot.can_afford(UnitTypeId.EXTRACTOR):
@@ -943,7 +955,7 @@ class TechRoachHydra(RoachHydraBase):
                                 bot.do(hatch(AbilityId.UPGRADETOLAIR_LAIR))
             else:
                 return False
-        elif len(bot.townhalls) < 3:
+        elif len(bot.townhalls.ready) < 3:
             bot.add_debug_info("no 3rd base")
             return True
         elif len(bot.structures(UnitTypeId.EXTRACTOR)) < 6:
@@ -969,6 +981,9 @@ class TechRoachHydra(RoachHydraBase):
             else:
                 bot.add_debug_info("can't make infestation pit")
                 return False
+        elif len(bot.townhalls.ready) < 4:
+            bot.add_debug_info("no 4th base")
+            return True
         elif len(bot.structures(UnitTypeId.EXTRACTOR)) < 8:
             # build 7th and 8th gas
             if bot.can_afford(UnitTypeId.EXTRACTOR):

@@ -326,11 +326,13 @@ class ZergBot(sc2.BotAI):
         self.army_state = Enums.ArmyState.CONSOLIDATING
 
         self.army_condition = Enums.ArmyCondition.DEFENSIVE
-        self.army_composition = Enums.ArmyComp.ROACH_HYDRA
+        self.army_composition = Enums.ArmyComp.LING_BANE_HYDRA
         self.main_army_left = []
         self.main_army_right = []
-        self.army_target_1 = None
-        self.army_target_2 = None
+        self.army_rally_point_left = None
+        self.army_rally_point_right = None
+        self.army_target_left = None
+        self.army_target_right = None
         self.non_army_units = []
         self.army_defense_points_left = [(51, 21),
                                         (97, 22),
@@ -459,7 +461,7 @@ class ZergBot(sc2.BotAI):
         if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA:
             self.unit_ratio = (4, 4, 1)
         if self.army_composition == Enums.ArmyComp.ROACH_HYDRA:
-            self.unit_ratio = (1, 1)
+            self.unit_ratio = (2, 1)
         drone_file = open("drone_times.txt", "w")
         drone_file.write("")
         drone_file.close()
@@ -1544,36 +1546,45 @@ class ZergBot(sc2.BotAI):
 
             if need_to_protect:
                 self.army_state = Enums.ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]):
+                for unit in self.units.tags_in(self.main_army_left + self.main_army_right + self.creep_queens):
                     self.do(unit.attack(need_to_protect))
             # if we have more than 90 army supply ready then go to the rally point
             if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags)) >= 100:
                 self.army_state = Enums.ArmyState.RALLYING
                 await self.find_attack_and_rally_points()
-                print("rally to " + str(self.rally_point))
-                self.army_unit_tags = []
-                for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
-                    self.army_unit_tags.append(unit.tag)
-                    self.do(unit.attack(Point2(self.rally_point)))
+                for unit in self.units.tags_in(self.main_army_left):
+                    self.do(unit.attack(Point2(self.army_rally_point_left)))
+                for unit in self.units.tags_in(self.main_army_right):
+                    self.do(unit.attack(Point2(self.army_rally_point_right)))
         elif self.army_state == Enums.ArmyState.RALLYING:
             # if we're attacked while we're launching an attack then go back to defend
             # TODO determine if we need to defend and how much with
             if need_to_protect:
                 self.army_state = Enums.ArmyState.PROTECTING
-                for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags):
+                for unit in self.units.tags_in(self.main_army_left + self.main_army_right + self.creep_queens):
                     self.do(unit.attack(need_to_protect))
             # is everyone in position?
-            for unit in self.units.tags_in(self.army_unit_tags):
-                if unit.distance_to(Point2(self.rally_point)) > 10:
+            for unit in self.units.tags_in(self.main_army_left):
+                if unit.distance_to(Point2(self.army_rally_point_left)) > 10:
                     # unit is not yet at the rally point
                     print("waiting on " + str(unit.type_id))
+                    self.do(unit.attack(self.army_rally_point_left))
+                    self._client.debug_sphere_out(Point3((unit.position3d[0], unit.position3d[1], unit.position3d[2])), 1, color = Point3((0, 255, 0)))
+                    return
+            for unit in self.units.tags_in(self.main_army_right):
+                if unit.distance_to(Point2(self.army_rally_point_right)) > 10:
+                    # unit is not yet at the rally point
+                    print("waiting on " + str(unit.type_id))
+                    self.do(unit.attack(self.army_rally_point_right))
                     self._client.debug_sphere_out(Point3((unit.position3d[0], unit.position3d[1], unit.position3d[2])), 1, color = Point3((0, 255, 0)))
                     return
             # everyone is at the rally point then attack and queue attacking the main
             self.army_state = Enums.ArmyState.ATTACKING
-            print("attack " + str(self.attack_position))
-            for unit in self.units.tags_in(self.army_unit_tags):
-                self.do(unit.attack(Point2(self.attack_position)))
+            for unit in self.units.tags_in(self.main_army_left):
+                self.do(unit.attack(Point2(self.army_target_left)))
+                self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
+            for unit in self.units.tags_in(self.main_army_right):
+                self.do(unit.attack(Point2(self.army_target_right)))
                 self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
         elif self.army_state == Enums.ArmyState.ATTACKING:
             enemy_supply = 0
@@ -1583,19 +1594,18 @@ class ZergBot(sc2.BotAI):
                     enemy_supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
             # if we have 2x more army supply then flood new units
             if self.supply_army > enemy_supply * 2:
-                for unit in self.units.exclude_type([LARVA, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.army_unit_tags + self.zergling_scout_tags):
-                    self.army_unit_tags.append(unit.tag)
-                    self.do(unit.attack(Point2(self.attack_position)))
+                for unit in self.units.tags_in(self.main_army_left).idle:
+                    self.do(unit.attack(Point2(self.army_target_left)))
+                    self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
+                for unit in self.units.tags_in(self.main_army_right).idle:
+                    self.do(unit.attack(Point2(self.army_target_right)))
                     self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
             # if the attack has been killed off go back to consolidating
-            if len(self.units.tags_in(self.army_unit_tags)) == 0:
+            if len(self.units.tags_in(self.main_army_left + self.main_army_right)) == 0:
                 print("consolidate")
                 self.army_state = Enums.ArmyState.CONSOLIDATING
             for roach in self.units({ROACH, ROACHBURROWED}).tags_in(self.army_unit_tags):
                 await self.micro_roach(roach)
-            for unit in self.units.tags_in(self.army_unit_tags).idle:
-                self.do(unit.attack(Point2(self.attack_position)))
-                self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
         elif self.army_state == Enums.ArmyState.PROTECTING:
             # if the attack has been dealt with go back to consolidating
             if need_to_protect == None:
@@ -1609,8 +1619,37 @@ class ZergBot(sc2.BotAI):
 
     def find_flanking_position(self):
         pass
-                    
+
+
     async def find_attack_and_rally_points(self):
+        # for left hand army
+        if self.enemy_expos[3] == 1:
+            # inline 5th
+            self.army_rally_point_left = self.convert_location(self.rally_points[5])
+            self.army_target_left = self.convert_location(self.expos[6])
+        elif self.enemy_expos[1] == 1:
+            # inline 3rd
+            self.army_rally_point_left = self.convert_location(self.rally_points[5])
+            self.army_target_left = self.convert_location(self.expos[3])
+        else:
+            # natural
+            self.army_rally_point_left = self.convert_location(self.rally_points[2])
+            self.army_target_left = self.convert_location(self.expos[7])
+
+        # for right hand army
+        if self.enemy_expos[4] == 1:
+            # triangle 5th
+            self.army_rally_point_right = self.convert_location(self.rally_points[0])
+            self.army_target_right = self.convert_location(self.expos[2])
+        elif self.enemy_expos[2] == 1:
+            # triangle 3rd
+            self.army_rally_point_right = self.convert_location(self.rally_points[6])
+            self.army_target_right = self.convert_location(self.expos[9])
+        else:
+            # natural
+            self.army_rally_point_right = self.convert_location(self.rally_points[1])
+            self.army_target_right = self.convert_location(self.expos[7])
+        """
         if self.enemy_expos[5] == 1:
             print("attack middle base")
             self.rally_point = self.convert_location(self.rally_points[7])
@@ -1639,6 +1678,7 @@ class ZergBot(sc2.BotAI):
             print("attack anything")
             self.rally_point = self.convert_location(self.rally_points[7])
             self.attack_position = self.enemy_structures.random.position
+            """
             
     async def micro_queen_defense(self, need_to_protect):
         if self.enemy_attack_point == None:
@@ -2394,7 +2434,7 @@ class ZergBot(sc2.BotAI):
     async def display_debug_info(self):
         self.add_debug_info(str(self.enemy_unit_numbers))
         self.add_debug_info("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
-        self.add_debug_info("next expo: " + str(self.last_expansion_time + 120) + " time " + str(self.time))
+        self.add_debug_info("next expo: " + str(self.last_expansion_time + 120))
         self.add_debug_info(self.creep_queen_state.name)
         self.add_debug_info(self.enemy_army_state.name)
         if self.proxy_status != Enums.ProxyStatus.NONE:
@@ -2852,7 +2892,7 @@ class ZergBot(sc2.BotAI):
         
 run_game(maps.get("LightshadeLE"), [
         Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Terran, Difficulty.CheatVision)
+        Computer(Race.Terran, Difficulty.VeryHard)
         ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane

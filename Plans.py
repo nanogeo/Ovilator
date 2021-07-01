@@ -1014,15 +1014,19 @@ class TechRoachHydra(RoachHydraBase):
 class MacroRoachSwarmHost(Plan):
     conditions = []
     
+    @staticmethod
     async def use_larva(bot):
         print("used some larva")
-        
+       
+    @staticmethod 
     async def make_expansions():
         print("maybe make an expo")
     
+    @staticmethod
     async def expand_tech(bot):
         print("expand our tech maybe")
     
+    @staticmethod
     async def get_upgrades(bot):
         print("could get some upgrades")
         
@@ -1030,15 +1034,19 @@ class MacroRoachSwarmHost(Plan):
 class BuildArmyRoachSwarmHost(Plan):
     conditions = []
     
+    @staticmethod
     async def use_larva(bot):
         print("used some larva")
-        
+     
+    @staticmethod   
     async def make_expansions(bot):
         print("maybe make an expo")
     
+    @staticmethod
     async def expand_tech(bot):
         print("expand our tech maybe")
     
+    @staticmethod
     async def get_upgrades(bot):
         print("could get some upgrades")
         
@@ -1046,15 +1054,19 @@ class BuildArmyRoachSwarmHost(Plan):
 class TechRoachSwarmHost(Plan):
     conditions = []
     
+    @staticmethod
     async def use_larva(bot):
         print("used some larva")
-        
+     
+    @staticmethod   
     async def make_expansions(bot):
         print("maybe make an expo")
     
+    @staticmethod
     async def expand_tech(bot):
         print("expand our tech maybe")
     
+    @staticmethod
     async def get_upgrades(bot):
         print("could get some upgrades")
         

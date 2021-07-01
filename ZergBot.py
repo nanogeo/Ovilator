@@ -28,6 +28,7 @@ import numpy
 from enum import Enum
 
 import Plans
+import SpecialActions
 import Enums
 
 import matplotlib.pyplot as plt
@@ -59,6 +60,7 @@ class ZergBot(sc2.BotAI):
         self.difference_in_bases = 0
         self.saturation = 0
         self.threat_level = 0
+        self.current_special_actions = []
         self.build_order = [(0, self.build_drone),
                             (10, self.build_overlord),
                             (14, self.build_drone),
@@ -519,6 +521,7 @@ class ZergBot(sc2.BotAI):
             
             await self.scout_with_lings()
             await self.micro()
+            await self.run_special_actions()
 
         await self.display_debug_info()
         
@@ -2477,6 +2480,15 @@ class ZergBot(sc2.BotAI):
             for j in range(0, len(self.army_position_links[i])):
                 self.map_graph.add_edge(i, self.army_position_links[i][j], Point2(self.army_positions[i]).distance_to(Point2(self.army_positions[self.army_position_links[i][j]])))
 
+    async def run_special_actions(self):
+        if SpecialActions.LingRunby.check_prereqs(self):
+            new_runby = SpecialActions.LingRunby(self, lings, attack_location, rally_point)
+            self.current_special_actions.append(new_runby)
+            return
+        pass
+
+    
+
     async def test_build_conditions(self):
         self.update_plan_conditions()
         best_value = 0
@@ -2522,7 +2534,7 @@ class ZergBot(sc2.BotAI):
     def update_threat_level(self):
         if self.supply_army == 0:
             return math.inf
-        threat = self.enemy_army_supply / self.supply_army
+        threat = self.enemy_army_supply / (self.supply_army - (len(self.creep_queens) * 2))
         if self.enemy_army_state == Enums.EnemyArmyState.DEFENDING:
             threat *= .5
         elif self.enemy_army_state == Enums.EnemyArmyState.PREPARING_ATTACK:

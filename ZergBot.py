@@ -60,7 +60,6 @@ class ZergBot(sc2.BotAI):
         self.difference_in_bases = 0
         self.saturation = 0
         self.threat_level = 0
-        self.current_special_actions = []
         self.build_order = [(0, self.build_drone),
                             (10, self.build_overlord),
                             (14, self.build_drone),
@@ -210,7 +209,7 @@ class ZergBot(sc2.BotAI):
                     ]
         
         self.last_expansion_time = 0
-        self.enemy_expos = [0, 0, 0, 0, 0, 0]
+        self.enemy_expos = [0, 0, 0, 0, 0, 0] # nat, line 3, tri 3, line 5, tri 5, mid
         self.main_scout_path = [(53, 133), (50, 125), (36, 125), (37, 137)]
         self.scouts_sent = 0
         self.army_req = 0
@@ -261,7 +260,7 @@ class ZergBot(sc2.BotAI):
         
         self.enemy_unit_tags = {}
         self.enemy_unit_numbers = {}
-        self.enemy_army_position = None
+        #self.enemy_army_position = None
         self.enemy_attack_point = None
 
 # mining
@@ -411,6 +410,12 @@ class ZergBot(sc2.BotAI):
                                [5, 9],          # tri 5th
                                [0]]             # middle
         
+        self.enemy_main_army_position = None
+
+# special actions
+        self.current_ling_runby = None
+        self.runby_rally_point = None
+        self.runby_attack_point = None
 
 # muta micro
         self.muta_attack_positions = [(57, 41),
@@ -521,6 +526,7 @@ class ZergBot(sc2.BotAI):
             
             await self.scout_with_lings()
             await self.micro()
+            await self.create_new_special_actions()
             await self.run_special_actions()
 
         await self.display_debug_info()
@@ -1031,6 +1037,7 @@ class ZergBot(sc2.BotAI):
                 
             group = max(enemy_unit_groups, key = lambda k: len(k))
             pos = group.center
+            self.enemy_main_army_position = pos
             for i in range(0, len(self.enemy_expos)):
                 if self.enemy_expos[i] > 0:
                     enemy_bases_locations.append(self.convert_location(self.expos[expo_numbers[i]]))
@@ -1372,10 +1379,10 @@ class ZergBot(sc2.BotAI):
 
     async def update_creep(self, iteration):
         if self.quad_status[self.current_quad_x][self.current_quad_y]:
-            self.update_creep_quadrant()
+            await self.update_creep_quadrant()
             self.find_quad_creep_spots()
         elif iteration % 16 == iteration % 160:
-            self.update_creep_quadrant()
+            await self.update_creep_quadrant()
             self.find_quad_creep_spots()
         
 
@@ -1388,7 +1395,7 @@ class ZergBot(sc2.BotAI):
             
 
     
-    def update_creep_quadrant(self):
+    async def update_creep_quadrant(self):
         pixel_map = self.game_info.placement_grid
         self.set_of_non_creep_points[self.current_quad_x][self.current_quad_y] = set()
         valid_points = 0
@@ -1404,7 +1411,7 @@ class ZergBot(sc2.BotAI):
         if self.quad_creep_coverage[self.current_quad_x][self.current_quad_y][0] != points_with_creep:
             self.quad_creep_coverage[self.current_quad_x][self.current_quad_y] = (points_with_creep, valid_points)
             self.quad_status[self.current_quad_x][self.current_quad_y] = 1
-            self.update_creep_coverage()
+            await self.update_creep_coverage()
         else:
             self.quad_status[self.current_quad_x][self.current_quad_y] = 0
 
@@ -2162,7 +2169,7 @@ class ZergBot(sc2.BotAI):
         return False
     
     def make_baneling(self):
-        lings = self.units(ZERGLING).ready
+        lings = self.units(ZERGLING).tags_in(self.main_army_left + self.main_army_right)
         if len(lings) > 0:
             self.do(lings[0](AbilityId.MORPHZERGLINGTOBANELING_BANELING))
      
@@ -2425,7 +2432,59 @@ class ZergBot(sc2.BotAI):
                     drone = pos.closest(self.units(DRONE))
                     self.remove_drone(drone.tag)
                     self.do(drone.build(SPORECRAWLER, pos))
-                        
+
+
+########################################
+############ SPECIAL ACTIONS ###########
+########################################
+
+    async def run_special_actions(self):
+        if self.current_ling_runby:
+            if self.current_ling_runby.check_cancel_conditions():
+                # return units etc
+                self.current_ling_runby = None
+                print("delete ling runby")
+            else:
+                await self.current_ling_runby.run_action()
+
+
+    async def create_new_special_actions(self):
+        if self.current_ling_runby == None and SpecialActions.LingRunby.check_prereqs(self):
+            self.find_runby_location()
+            lings = (self.units(ZERGLING).tags_in(self.main_army_left + self.main_army_right).closest_n_units(self.runby_rally_point, 10)).tags
+            for tag in lings:
+                if tag in self.main_army_left:
+                    self.main_army_left.remove(tag)
+                elif tag in self.main_army_right:
+                    self.main_army_right.remove(tag)
+            self.current_ling_runby = SpecialActions.LingRunby(self, lings, self.runby_attack_point, self.runby_rally_point)
+            print(self.current_ling_runby)
+        
+    def find_runby_location(self):
+        left_rally = self.convert_location((55, 23))
+        right_rally = self.convert_location((129, 141))
+        print("RUNBY")
+        if self.enemy_main_army_position == None or self.enemy_main_army_position.distance_to(left_rally) < self.enemy_main_army_position.distance_to(right_rally):
+            self.runby_rally_point = left_rally
+            attack_point = 7
+            if self.enemy_expos[3]:
+                attack_point = 6
+            elif self.enemy_expos[1]:
+                attack_point = 3
+            print("LEFT")
+        else:
+            self.runby_rally_point = right_rally
+            attack_point = 7
+            if self.enemy_expos[4]:
+                attack_point =  2
+            elif self.enemy_expos[2]:
+                attack_point = 9
+            print("RIGHT")
+        self.runby_attack_point = Point2(self.expos[attack_point])
+        # nat, line 3, tri 3, line 5, tri 5, mid 7, 3, 9, 6, 2, 4
+            
+
+
 
 ########################################
 ################ UTILITY ###############
@@ -2453,13 +2512,8 @@ class ZergBot(sc2.BotAI):
                 else:
                     self._client.debug_text_screen("\n"*(3-j) + " "*i + '1', (.3, .1), Point3((0, 255, 0)), 20)
 
-        for i in range(0, len(self.spore_positions)):
-            pos = self.convert_location(self.spore_positions[i])
-            height = self.get_terrain_z_height(Point2(pos))
-            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 1, color = Point3((255, 255, 0)))
-            self._client.debug_text_world("spore " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 255, 0)), 16)
         
-        if not self.has_debug and round(self.time) % self.debug_interval == 0:
+        """if not self.has_debug and round(self.time) % self.debug_interval == 0:
             self.has_debug = True
             print("START DEBUG")
             print(str(self.time_formatted))
@@ -2471,7 +2525,7 @@ class ZergBot(sc2.BotAI):
             print(self.proxy_buildings)
             print("END DEBUG")
         elif self.has_debug and round(self.time) % self.debug_interval == 1:
-            self.has_debug = False
+            self.has_debug = False"""
     
     def set_up_map_graph(self):
         for index, point in enumerate(self.army_positions):
@@ -2480,12 +2534,7 @@ class ZergBot(sc2.BotAI):
             for j in range(0, len(self.army_position_links[i])):
                 self.map_graph.add_edge(i, self.army_position_links[i][j], Point2(self.army_positions[i]).distance_to(Point2(self.army_positions[self.army_position_links[i][j]])))
 
-    async def run_special_actions(self):
-        if SpecialActions.LingRunby.check_prereqs(self):
-            new_runby = SpecialActions.LingRunby(self, lings, attack_location, rally_point)
-            self.current_special_actions.append(new_runby)
-            return
-        pass
+
 
     
 
@@ -2903,9 +2952,9 @@ class ZergBot(sc2.BotAI):
         
         
 run_game(maps.get("LightshadeLE"), [
-        Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Terran, Difficulty.VeryHard)
-        ], realtime = False)
+        Bot(Race.Terran, BlankBot()),
+        Bot(Race.Zerg, ZergBot())
+        ], realtime = True)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
 

@@ -61,3 +61,8 @@ class MinerStatus(Enum):
     MOVING_TO_HATCH = 1
     MOVING_TO_MINERALS = 2
     MINING = 3
+
+class LingRunByState(Enum):
+    CONSOLIDATING = 1
+    MOVING_TO_RALLY = 2
+    ATTACKING = 3

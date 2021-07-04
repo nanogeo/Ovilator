@@ -1188,7 +1188,7 @@ class ABCRoachTimingBase(Plan):
         roach_need = 2
         if bot.time < 330:
             roach_need = 8
-        ravagers = (len(bot.units(UnitTypeId.RAVAGER)) + bot.already_pending(UnitTypeId.RAVAGER))
+        #ravagers = (len(bot.units(UnitTypeId.RAVAGER)) + bot.already_pending(UnitTypeId.RAVAGER))
         
         while (i < len(all_larva) and bot.supply_used + 1 + i <= bot.supply_cap):
             if len(bot.structures(UnitTypeId.ROACHWARREN)) > 0 and roaches < roach_need and bot.vespene >= 25:

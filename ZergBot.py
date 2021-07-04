@@ -256,7 +256,6 @@ class ZergBot(sc2.BotAI):
         self.unit_ratio = None
 
         
-        self.pending_upgrade = False
         
         self.enemy_unit_tags = {}
         self.enemy_unit_numbers = {}
@@ -513,7 +512,6 @@ class ZergBot(sc2.BotAI):
         await self.distribute_workers()
         await self.execute_build()
         
-        await self.get_upgrades()
         await self.inject_larva()
         await self.update_creep(iteration)
         await self.spread_creep()
@@ -711,68 +709,7 @@ class ZergBot(sc2.BotAI):
             await self.send_scout()
             self.scouts_sent += 1
             print("third scout")
-        """
-        if self.enemy_expos[0] and self.time < 80:
-            # enemy went nexus first
-            # punsih with lings
-            print("seen nexus first")
-        elif self.enemy_expos[0] == 0 and self.time > 105:
-            # enemy natural is late
-            print("seen late natural")
-        elif self.enemy_expos[1] + self.enemy_expos[2] > 0 and self.time < 240:
-            # emey took 3rd early
-            print("seen early 3rd")
-        elif self.enemy_expos[1] + self.enemy_expos[2] == 0 and self.time > 300:
-            # enemy 3rd is late
-            print("seen late 3rd")
-        elif self.enemy_expos[1] + self.enemy_expos[2] + self.enemy_expos[3] + self.enemy_expos[4] > 1 and self.time < 480:
-            # enemy took 4th early
-            print("seen early 4th")
-        elif self.enemy_expos[1] + self.enemy_expos[2] + self.enemy_expos[3] + self.enemy_expos[4] == 1 and self.time > 540:
-            # enemy 4th is late
-            print("seen late 4th")
-        """
-        #count enemy buildings
-        """gates = 0
-        robos = 0
-        stargates = 0
-        forges = 0
-        batteries = 0
-        cannons = 0
-        twilights = 0
-        fleet_beacons = 0
-        gases = 0
-        cores = 0
-        archives = 0
-        dark_shrines = 0
-        robo_bays = 0
-        for building in self.enemy_structures():
-            if building.type_id == UnitTypeId.GATEWAY or building.type_id == UnitTypeId.WARPGATE:
-                gates += 1
-            elif building.type_id == UnitTypeId.ROBOTICSFACILITY:
-                 robos += 1
-            elif building.type_id == UnitTypeId.STARGATE:
-                 stargates += 1
-            elif building.type_id == UnitTypeId.FORGE:
-                 forges += 1
-            elif building.type_id == UnitTypeId.SHIELDBATTERY:
-                 batteries += 1
-            elif building.type_id == UnitTypeId.PHOTONCANNON:
-                 cannons += 1
-            elif building.type_id == UnitTypeId.TWILIGHTCOUNCIL:
-                 twilights += 1
-            elif building.type_id == UnitTypeId.FLEETBEACON:
-                 fleet_beacons += 1
-            elif building.type_id == UnitTypeId.ASSIMILATOR:
-                 gases += 1
-            elif building.type_id == UnitTypeId.CYBERNETICSCORE:
-                 cores += 1
-            elif building.type_id == UnitTypeId.TEMPLARARCHIVE:
-                 archives += 1
-            elif building.type_id == UnitTypeId.DARKSHRINE:
-                 dark_shrines += 1
-            elif building.type_id == UnitTypeId.ROBOTICSBAY:
-                 robo_bays += 1"""
+
         #respond to scouts
         if self.proxy_location:
             if len(self.enemy_structures) == 0:
@@ -796,121 +733,7 @@ class ZergBot(sc2.BotAI):
                 await self.gauge_proxy_level()
                 await self.deny_proxy()
    
-    async def update_units_needs(self):
-        # special events
-        if self.proxy_status != Enums.ProxyStatus.NONE:
-            self.drone_need = 0
-            self.queen_need = round(self.time / 120)
-            if self.vespene >= 100 and not self.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED):
-                self.zergling_need = 0
-            else:
-                self.zergling_need = 50
-            return
-        
-        #drones
-        if len(self.townhalls) < 3 and self.expansion_need == 100:
-            self.drone_need = 25
-        elif len(self.units(ZERGLING)) + self.already_pending(ZERGLING) + len(self.units(BANELING)) + self.already_pending(BANELING)  < self.zergling_need:
-            self.drone_need == 25
-        else:
-            self.drone_need = min(80, len(self.townhalls) * 16 + len(self.structures(EXTRACTOR)) * 3)
-        #queens
-        self.queen_need = min(8, len(self.townhalls.ready) * 2 + 2)
-        supply = 0
-        for tag in self.enemy_unit_tags.keys():
-            if self.enemy_unit_tags[tag] not in [PROBE, DRONE, SCV]:
-                supply += self.calculate_supply_cost(self.enemy_unit_tags[tag])
-        if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA:
-            #lings
-            if self.supply_workers + self.already_pending(DRONE) < 80:
-                if self.structures(BANELINGNEST).ready:
-                    if self.structures(HYDRALISKDEN):
-                        self.zergling_need == supply * .5
-                    else:
-                        self.zergling_need = supply
-                else:
-                    self.zergling_need = min(supply * 2, 20)
-            else:
-                self.zergling_need = 150 - ((self.queen_need + self.infestor_need) * 2)
-            #banes
-            self.baneling_need = len(self.units(ZERGLING)) / 2
-            #hydras
-            if len(self.structures(HYDRALISKDEN)) > 0:
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    self.hydralisk_need = supply * 0.25
-                else:
-                    self.hydralisk_need = 20 - ((self.queen_need + self.infestor_need) / 2)
-        elif self.army_composition == Enums.ArmyComp.ROACH_HYDRA:
-            #roaches
-            if len(self.structures(ROACHWARREN)) > 0:
-                self.zergling_need = 0
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    if len(self.structures(HYDRALISKDEN)) > 0:
-                        self.roach_need = supply * 0.25
-                    else:
-                        self.roach_need = min(30, supply * 0.5)
-                else:
-                    self.roach_need = 30
-            elif supply > 10:
-                self.zergling_need = supply * .5
-            #hydras
-            if len(self.structures(HYDRALISKDEN)) > 0:
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    self.hydralisk_need = supply * 0.25
-                else:
-                    self.hydralisk_need = 30
-        elif self.army_composition == Enums.ArmyComp.ROACH_SWARM_HOST:
-            #roaches
-            if len(self.structures(ROACHWARREN)) > 0:
-                self.zergling_need = 0
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    if len(self.structures(HYDRALISKDEN)) > 0:
-                        self.roach_need = supply * 0.25
-                    else:
-                        self.roach_need = min(30, supply * 0.5)
-                else:
-                    self.roach_need = 30
-            elif supply > 10:
-                self.zergling_need = supply * .5
-            #swarm hosts
-            if len(self.structures(INFESTATIONPIT)) > 0 and (len(self.structures(NYDUSNETWORK)) > 0 or self.already_pending(NYDUSNETWORK)):
-                if self.supply_workers + self.already_pending(DRONE) < 60:
-                    self.swarmhost_need = 10
-                else:
-                    self.swarmhost_need = 14
-        if self.army_composition == Enums.ArmyComp.LING_BANE_MUTA:
-            #lings
-            if self.supply_workers + self.already_pending(DRONE) < 80:
-                if self.structures(BANELINGNEST).ready:
-                    if self.structures({SPIRE, GREATERSPIRE}):
-                        self.zergling_need == supply * .5
-                    else:
-                        self.zergling_need = supply
-                else:
-                    self.zergling_need = min(supply * 2, 20)
-            else:
-                self.zergling_need = 70
-            #banes
-            self.baneling_need = len(self.units(ZERGLING)) / 2
-            #mutas
-            if len(self.structures({SPIRE, GREATERSPIRE})) > 0:
-                if self.supply_workers + self.already_pending(DRONE) < 80:
-                    self.mutalisk_need = 10
-                else:
-                    self.mutalisk_need = 25
     
-    async def update_building_need(self):
-        # special events
-        if self.proxy_status != Enums.ProxyStatus.NONE:
-            self.expansion_need = 0
-            return
-        
-        # the enemy has the same number of bases as us
-        if sum(self.enemy_expos) + 1 >= len(self.townhalls) + self.already_pending(HATCHERY) or self.time >= self.last_expansion_time + 120:
-            self.expansion_need = 100
-        else:
-            self.expansion_need = 0
-
     async def update_enemy_units(self):
         for unit in self.enemy_units:
             if unit.tag not in self.enemy_unit_tags.keys():
@@ -2204,228 +2027,16 @@ class ZergBot(sc2.BotAI):
                     if not hatchery.has_buff(BuffId.QUEENSPAWNLARVATIMER):
                         self.do(queen(AbilityId.EFFECT_INJECTLARVA, hatchery))
     
-    async def get_upgrades(self):
-        # melee
-        if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA or self.army_composition == Enums.ArmyComp.LING_BANE_MUTA:
-            if self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL1):
-                if self.can_afford(UpgradeId.ZERGMELEEWEAPONSLEVEL1):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL1))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL1).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL2) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.ZERGMELEEWEAPONSLEVEL2):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL2))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL2).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL3) and len(self.structures(HIVE)) > 0:
-                if self.can_afford(UpgradeId.ZERGMELEEWEAPONSLEVEL3):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL3))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL3).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-    
-        # missile
-        if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA or self.army_composition == Enums.ArmyComp.ROACH_HYDRA or self.army_composition == Enums.ArmyComp.ROACH_SWARM_HOST:
-            if self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL1):
-                if self.can_afford(UpgradeId.ZERGMISSILEWEAPONSLEVEL1):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL1))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL1).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL2) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.ZERGMISSILEWEAPONSLEVEL2):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL2))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL2).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL3) and len(self.structures(HIVE)) > 0:
-                if self.can_afford(UpgradeId.ZERGMISSILEWEAPONSLEVEL3):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL3))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL3).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-                
-        # armor
-        if self.army_composition == Enums.ArmyComp.ROACH_HYDRA:
-            if self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL1):
-                if self.can_afford(UpgradeId.ZERGGROUNDARMORSLEVEL1):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL1))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL1).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL2) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.ZERGGROUNDARMORSLEVEL2):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL2))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL2).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(EVOLUTIONCHAMBER).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL3) and len(self.structures(HIVE)) > 0:
-                if self.can_afford(UpgradeId.ZERGGROUNDARMORSLEVEL3):
-                    evo = self.structures(EVOLUTIONCHAMBER).ready.idle.random
-                    self.do(evo(AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL3))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL3).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-        
-        # zergling
-        if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA or self.army_composition == Enums.ArmyComp.LING_BANE_MUTA:
-            if self.structures(SPAWNINGPOOL).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED):
-                if self.can_afford(UpgradeId.ZERGLINGMOVEMENTSPEED):
-                    pool = self.structures(SPAWNINGPOOL).ready.idle.random
-                    self.do(pool(AbilityId.RESEARCH_ZERGLINGMETABOLICBOOST))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGLINGMETABOLICBOOST).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(SPAWNINGPOOL).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGLINGATTACKSPEED) and len(self.structures(HIVE)) > 0:
-                if self.can_afford(UpgradeId.ZERGLINGATTACKSPEED):
-                    pool = self.structures(SPAWNINGPOOL).ready.idle.random
-                    self.do(pool(AbilityId.RESEARCH_ZERGLINGADRENALGLANDS))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGLINGADRENALGLANDS).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-        # baneling
-        if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA or self.army_composition == Enums.ArmyComp.LING_BANE_MUTA:
-            if self.structures(BANELINGNEST).ready.idle and not self.already_pending_upgrade(UpgradeId.CENTRIFICALHOOKS) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.CENTRIFICALHOOKS):
-                    bane = self.structures(BANELINGNEST).ready.idle.random
-                    self.do(bane(AbilityId.RESEARCH_CENTRIFUGALHOOKS))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_CENTRIFUGALHOOKS).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
+    def get_upgrade(self, building_type, upgrade, upgrade_ability):
+        if len(self.structures(building_type).ready.idle) > 0 and self.can_afford(upgrade):
+            building = self.structures(building_type).ready.idle.random
+            self.do(building(upgrade_ability))
+            return True
+        else:
+            return False
 
-        # roach
-        if self.army_composition == Enums.ArmyComp.ROACH_HYDRA or self.army_composition == Enums.ArmyComp.ROACH_SWARM_HOST:
-            if self.structures(ROACHWARREN).ready.idle and not self.already_pending_upgrade(UpgradeId.GLIALRECONSTITUTION) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.GLIALRECONSTITUTION):
-                    roach_warren = self.structures(ROACHWARREN).ready.idle.random
-                    self.do(roach_warren(AbilityId.RESEARCH_GLIALREGENERATION))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_GLIALREGENERATION).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(ROACHWARREN).ready.idle and not self.already_pending_upgrade(UpgradeId.TUNNELINGCLAWS) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.TUNNELINGCLAWS):
-                    roach_warren = self.structures(ROACHWARREN).ready.idle.random
-                    self.do(roach_warren(AbilityId.RESEARCH_TUNNELINGCLAWS))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_TUNNELINGCLAWS).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-        
-        # hydra
-        if self.army_composition == Enums.ArmyComp.LING_BANE_HYDRA or self.army_composition == Enums.ArmyComp.ROACH_HYDRA:
-            if self.structures(HYDRALISKDEN).ready.idle and not self.already_pending_upgrade(UpgradeId.EVOLVEMUSCULARAUGMENTS) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.EVOLVEMUSCULARAUGMENTS):
-                    hydra_den = self.structures(HYDRALISKDEN).ready.idle.random
-                    self.do(hydra_den(AbilityId.RESEARCH_MUSCULARAUGMENTS))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_MUSCULARAUGMENTS).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures(HYDRALISKDEN).ready.idle and not self.already_pending_upgrade(UpgradeId.EVOLVEGROOVEDSPINES) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.EVOLVEGROOVEDSPINES):
-                    hydra_den = self.structures(HYDRALISKDEN).ready.idle.random
-                    self.do(hydra_den(AbilityId.RESEARCH_GROOVEDSPINES))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_GROOVEDSPINES).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-        
-        # spire
-        if self.army_composition == Enums.ArmyComp.LING_BANE_MUTA:
-            if self.structures({SPIRE, GREATERSPIRE}).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGFLYERWEAPONSLEVEL1):
-                if self.can_afford(UpgradeId.ZERGFLYERWEAPONSLEVEL1):
-                    spire = self.structures({SPIRE, GREATERSPIRE}).ready.idle.random
-                    self.do(spire(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL1))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL1).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures({SPIRE, GREATERSPIRE}).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGFLYERWEAPONSLEVEL2) and len(self.structures({LAIR, HIVE})) > 0:
-                if self.can_afford(UpgradeId.ZERGFLYERWEAPONSLEVEL2):
-                    spire = self.structures({SPIRE, GREATERSPIRE}).ready.idle.random
-                    self.do(spire(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL2))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL2).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-            elif self.structures({SPIRE, GREATERSPIRE}).ready.idle and not self.already_pending_upgrade(UpgradeId.ZERGFLYERWEAPONSLEVEL3) and len(self.structures(HIVE)) > 0:
-                if self.can_afford(UpgradeId.ZERGFLYERWEAPONSLEVEL3):
-                    spire = self.structures({SPIRE, GREATERSPIRE}).ready.idle.random
-                    self.do(spire(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL3))
-                    self.pending_upgrade = 0
-                elif self.calculate_cost(AbilityId.RESEARCH_ZERGFLYERATTACKLEVEL3).minerals > self.minerals:
-                    self.pending_upgrade = 1
-                else:
-                    self.pending_upgrade = 2
-        
 
-        # hatchery
-        if self.structures({HATCHERY, LAIR, HIVE}).ready.idle and not self.already_pending_upgrade(UpgradeId.OVERLORDSPEED) and self.time > 300:
-            if self.can_afford(UpgradeId.OVERLORDSPEED):
-                hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
-                if hatch == self.structures({HATCHERY, LAIR, HIVE})[0]:
-                    hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
-                self.do(hatch(AbilityId.RESEARCH_PNEUMATIZEDCARAPACE))
-                self.pending_upgrade = 0
-            elif self.calculate_cost(AbilityId.RESEARCH_PNEUMATIZEDCARAPACE).minerals > self.minerals:
-                self.pending_upgrade = 1
-            else:
-                self.pending_upgrade = 2
-        elif self.structures({HATCHERY, LAIR, HIVE}).ready.idle and not self.already_pending_upgrade(UpgradeId.BURROW) and self.time > 300:
-            if self.can_afford(UpgradeId.BURROW):
-                hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
-                if hatch == self.structures({HATCHERY, LAIR, HIVE})[0]:
-                    hatch = self.structures({HATCHERY, LAIR, HIVE}).ready.idle.random
-                self.do(hatch(AbilityId.RESEARCH_BURROW))
-                self.pending_upgrade = 0
-            elif self.calculate_cost(AbilityId.RESEARCH_BURROW).minerals > self.minerals:
-                self.pending_upgrade = 1
-            else:
-                self.pending_upgrade = 2
-    
     async def build_spores(self):
-        #if self.spore_need == 100:
         for spore_pos in self.spore_positions:
             pos = self.convert_location(spore_pos)
             if self.minerals > 150 and pos.distance_to_closest(self.townhalls.ready) < 10 and self.has_creep(pos):

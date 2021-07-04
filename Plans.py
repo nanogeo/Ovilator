@@ -277,6 +277,50 @@ class LingBaneHydraBase(Plan):
                     
         return True
         
+    @staticmethod
+    async def get_upgrades(bot):
+        # ling speed
+        if bot.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED) == 0 and len(bot.structures(UnitTypeId.SPAWNINGPOOL).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.SPAWNINGPOOL, UpgradeId.ZERGLINGMOVEMENTSPEED, AbilityId.RESEARCH_ZERGLINGMETABOLICBOOST)
+        # ovi speed
+        if bot.already_pending_upgrade(UpgradeId.OVERLORDSPEED) == 0 and len(bot.structures(UnitTypeId.HATCHERY).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HATCHERY, UpgradeId.OVERLORDSPEED, AbilityId.RESEARCH_PNEUMATIZEDCARAPACE)
+        # +1 melee, +1 carapace
+        if bot.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL1) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMELEEWEAPONSLEVEL1, AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL1)
+        if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL1) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL1, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL1)
+        # lair
+        if len(bot.structures({UnitTypeId.LAIR, UnitTypeId.HIVE}).ready) == 0:
+            return True
+        # baneling speed
+        if bot.already_pending_upgrade(UpgradeId.CENTRIFICALHOOKS) == 0 and len(bot.structures(UnitTypeId.BANELINGNEST).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.BANELINGNEST, UpgradeId.CENTRIFICALHOOKS, AbilityId.RESEARCH_CENTRIFUGALHOOKS)
+        # burrow
+        if bot.already_pending_upgrade(UpgradeId.BURROW) == 0 and len(bot.structures(UnitTypeId.HATCHERY).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HATCHERY, UpgradeId.BURROW, AbilityId.RESEARCH_BURROW)
+        # +2/+2
+        if bot.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL2) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMELEEWEAPONSLEVEL2, AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL2)
+        if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL2) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL2, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL2)
+        # hydra speed
+        if bot.already_pending_upgrade(UpgradeId.EVOLVEMUSCULARAUGMENTS) == 0 and len(bot.structures(UnitTypeId.HYDRALISKDEN).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HYDRALISKDEN, UpgradeId.EVOLVEMUSCULARAUGMENTS, AbilityId.RESEARCH_MUSCULARAUGMENTS)
+        # hydra range
+        if bot.already_pending_upgrade(UpgradeId.EVOLVEGROOVEDSPINES) == 0 and len(bot.structures(UnitTypeId.HYDRALISKDEN).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HYDRALISKDEN, UpgradeId.EVOLVEGROOVEDSPINES, AbilityId.RESEARCH_GROOVEDSPINES)
+        # hive
+        if len(bot.structures(UnitTypeId.HIVE).ready) == 0:
+            return True
+        # adrenal
+        if bot.already_pending_upgrade(UpgradeId.ZERGLINGATTACKSPEED) == 0 and len(bot.structures(UnitTypeId.SPAWNINGPOOL).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.SPAWNINGPOOL, UpgradeId.ZERGLINGATTACKSPEED, AbilityId.RESEARCH_ZERGLINGADRENALGLANDS)
+        # +3/+3
+        if bot.already_pending_upgrade(UpgradeId.ZERGMELEEWEAPONSLEVEL3) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMELEEWEAPONSLEVEL3, AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL3)
+        if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL3) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL3, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL3)
     
 class MacroLingBaneHydra(LingBaneHydraBase):
     @staticmethod
@@ -407,9 +451,7 @@ class MacroLingBaneHydra(LingBaneHydraBase):
         return True
 
     
-    @staticmethod
-    async def get_upgrades(bot):
-        return True    
+      
     
     
 class BuildArmyLingBaneHydra(LingBaneHydraBase):
@@ -437,9 +479,6 @@ class BuildArmyLingBaneHydra(LingBaneHydraBase):
                         await BuildArmyLingBaneHydra.make_expansions(bot)
 
     
-    @staticmethod
-    async def get_upgrades(bot):
-        return True
         
         
 class TechLingBaneHydra(LingBaneHydraBase):
@@ -596,10 +635,6 @@ class TechLingBaneHydra(LingBaneHydraBase):
         
         return True
     
-    @staticmethod
-    async def get_upgrades(bot):
-        bot.add_debug_info("could get some upgrades")
-        return True
         
         
 class RoachHydraBase(Plan):
@@ -819,7 +854,46 @@ class RoachHydraBase(Plan):
 
     @staticmethod
     async def get_upgrades(bot):
-        return True
+        # ovi speed
+        if bot.already_pending_upgrade(UpgradeId.OVERLORDSPEED) == 0 and len(bot.structures(UnitTypeId.HATCHERY).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HATCHERY, UpgradeId.OVERLORDSPEED, AbilityId.RESEARCH_PNEUMATIZEDCARAPACE)
+        # +1 ranged, +1 carapace
+        if bot.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL1) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMISSILEWEAPONSLEVEL1, AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL1)
+        if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL1) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL1, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL1)
+        # lair
+        if len(bot.structures({UnitTypeId.LAIR, UnitTypeId.HIVE}).ready) == 0:
+            return True
+        # roach speed
+        if bot.already_pending_upgrade(UpgradeId.GLIALRECONSTITUTION) == 0 and len(bot.structures(UnitTypeId.ROACHWARREN).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.ROACHWARREN, UpgradeId.GLIALRECONSTITUTION, AbilityId.RESEARCH_GLIALREGENERATION)
+        # +2/+2
+        if bot.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL2) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMISSILEWEAPONSLEVEL2, AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL2)
+        if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL2) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL2, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL2)
+        # hydra speed
+        if bot.already_pending_upgrade(UpgradeId.EVOLVEMUSCULARAUGMENTS) == 0 and len(bot.structures(UnitTypeId.HYDRALISKDEN).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HYDRALISKDEN, UpgradeId.EVOLVEMUSCULARAUGMENTS, AbilityId.RESEARCH_MUSCULARAUGMENTS)
+        # hydra range
+        if bot.already_pending_upgrade(UpgradeId.EVOLVEGROOVEDSPINES) == 0 and len(bot.structures(UnitTypeId.HYDRALISKDEN).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HYDRALISKDEN, UpgradeId.EVOLVEGROOVEDSPINES, AbilityId.RESEARCH_GROOVEDSPINES)
+        # burrow
+        if bot.already_pending_upgrade(UpgradeId.BURROW) == 0 and len(bot.structures(UnitTypeId.HATCHERY).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.HATCHERY, UpgradeId.BURROW, AbilityId.RESEARCH_BURROW)
+        # roach burrowed movement
+        if bot.already_pending_upgrade(UpgradeId.TUNNELINGCLAWS) == 0 and len(bot.structures(UnitTypeId.ROACHWARREN).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.ROACHWARREN, UpgradeId.TUNNELINGCLAWS, AbilityId.RESEARCH_TUNNELINGCLAWS)
+        # hive
+        if len(bot.structures(UnitTypeId.HIVE).ready) == 0:
+            return True
+        # +3/+3
+        if bot.already_pending_upgrade(UpgradeId.ZERGMISSILEWEAPONSLEVEL3) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMISSILEWEAPONSLEVEL3, AbilityId.RESEARCH_ZERGMISSILEWEAPONSLEVEL3)
+        if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL3) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
+            return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL3, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL3)
+    
     
 
 class MacroRoachHydra(RoachHydraBase):
@@ -846,10 +920,6 @@ class MacroRoachHydra(RoachHydraBase):
                     if await MacroRoachHydra.make_drones(bot):
                             await MacroRoachHydra.make_army(bot)
 
-    @staticmethod
-    async def get_upgrades(bot):
-        return True
-
 
 class BuildArmyRoachHydra(RoachHydraBase):
     @staticmethod
@@ -871,9 +941,6 @@ class BuildArmyRoachHydra(RoachHydraBase):
                     if await BuildArmyRoachHydra.expand_tech(bot):
                         await BuildArmyRoachHydra.make_expansions(bot)
     
-    @staticmethod
-    async def get_upgrades(bot):
-        return True
 
 
 class TechRoachHydra(RoachHydraBase):
@@ -1004,10 +1071,6 @@ class TechRoachHydra(RoachHydraBase):
             else:
                 return False
         
-    @staticmethod
-    async def get_upgrades(bot):
-        bot.add_debug_info("could get some upgrades")
-        return True
 
 
 

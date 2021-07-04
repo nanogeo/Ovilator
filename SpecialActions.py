@@ -37,6 +37,8 @@ class LingRunby(SpecialAction):
 		self.rally_point = rally_point
 		self.current_action = Enums.LingRunByState.CONSOLIDATING
 
+		self.cooldown = 30
+
 	@staticmethod
 	def check_prereqs(bot):
 		# ling speed

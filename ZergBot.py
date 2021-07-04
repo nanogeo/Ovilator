@@ -416,6 +416,7 @@ class ZergBot(sc2.BotAI):
         self.current_ling_runby = None
         self.runby_rally_point = None
         self.runby_attack_point = None
+        self.ling_runby_cooldown = 0
 
 # muta micro
         self.muta_attack_positions = [(57, 41),
@@ -2442,14 +2443,17 @@ class ZergBot(sc2.BotAI):
         if self.current_ling_runby:
             if self.current_ling_runby.check_cancel_conditions():
                 # return units etc
+                self.ling_runby_cooldown = self.current_ling_runby.cooldown
                 self.current_ling_runby = None
                 print("delete ling runby")
             else:
                 await self.current_ling_runby.run_action()
+        else:
+            self.ling_runby_cooldown -= self.step_time[3]
 
 
     async def create_new_special_actions(self):
-        if self.current_ling_runby == None and SpecialActions.LingRunby.check_prereqs(self):
+        if self.ling_runby_cooldown <= 0 and self.current_ling_runby == None and SpecialActions.LingRunby.check_prereqs(self):
             self.find_runby_location()
             lings = (self.units(ZERGLING).tags_in(self.main_army_left + self.main_army_right).closest_n_units(self.runby_rally_point, 10)).tags
             for tag in lings:
@@ -2480,7 +2484,7 @@ class ZergBot(sc2.BotAI):
             elif self.enemy_expos[2]:
                 attack_point = 9
             print("RIGHT")
-        self.runby_attack_point = Point2(self.expos[attack_point])
+        self.runby_attack_point = self.convert_location(self.expos[attack_point])
         # nat, line 3, tri 3, line 5, tri 5, mid 7, 3, 9, 6, 2, 4
             
 
@@ -2952,9 +2956,9 @@ class ZergBot(sc2.BotAI):
         
         
 run_game(maps.get("LightshadeLE"), [
-        Bot(Race.Terran, BlankBot()),
-        Bot(Race.Zerg, ZergBot())
-        ], realtime = True)
+        Bot(Race.Zerg, ZergBot()),
+        Computer(Race.Terran, Difficulty.VeryHard)
+        ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
 

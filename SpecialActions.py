@@ -11,6 +11,7 @@ from sc2.units import Units
 
 import Enums
 
+# actions: ling runby, baneling drop, fake baneling drop, infestor drop, overlord scout, overseer scout, ovilator
 
 class SpecialAction:
 	def __init__(self, bot):
@@ -31,7 +32,6 @@ class SpecialAction:
 class LingRunby(SpecialAction):
 	def __init__(self, bot, units, atk_location, rally_point):
 		super().__init__(bot)
-		self.attack_location = None
 		self.unit_tags = units
 		self.attack_location = atk_location
 		self.rally_point = rally_point
@@ -89,4 +89,38 @@ class LingRunby(SpecialAction):
 					self.bot.do(ling.attack(self.attack_location))
 
 
-all_actions = [LingRunby]
+class Ovilator(SpecialAction):
+	def __init__(self, bot, ovis, units, low_ground_pos, high_ground_pos):
+		super().__init__(bot)
+		self.dropperlords = ovis
+		self.unit_tags = units
+		self.low_ground_rally = low_ground_pos
+		self.ovi_position = high_ground_pos
+		self.current_action = Enums.OvilatorState.CONSOLIDATING
+
+
+	@staticmethod
+	def check_prereqs(bot):
+		# ovi speed
+		# enemy has 2 + bases
+		# enemy doesnt have triange 3rd
+		if (bot.already_pending_upgrade(UpgradeId.OVERLORDSPEED) < 1 or
+			True):
+			return False
+		return True
+
+	def check_cancel_conditions(self):
+		# all dropperlords are dead
+		if len(self.dropperlords) == 0 or len(self.bot.units.tags_in(self.dropperlords)) == 0:
+			return True
+		# high ground position is blocked or well defended
+		return False
+
+	async def run_action(self):
+
+		if self.current_action == Enums.OvilatorState.CONSOLIDATING:
+			pass
+		elif self.current_action == Enums.OvilatorState.MOVING_TO_POSITION:
+			pass
+		elif self.current_action == Enums.OvilatorState.ELEVATORING:
+			pass

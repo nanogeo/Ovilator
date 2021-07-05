@@ -324,6 +324,7 @@ class ZergBot(sc2.BotAI):
         self.burrow_researched = False
         self.burrow_movement_researched = False
         self.army_state = Enums.ArmyState.CONSOLIDATING
+        self.rally_time = 0
 
         self.army_condition = Enums.ArmyCondition.DEFENSIVE
         self.army_composition = Enums.ArmyComp.LING_BANE_HYDRA
@@ -767,13 +768,16 @@ class ZergBot(sc2.BotAI):
     
     async def send_ling_scouts(self):
         for i in range(0, len(self.zergling_scout_tags)):
-            if len(self.units.tags_in([self.zergling_scout_tags[i]])) == 0:
-                return False
-        for i in range(0, len(self.zergling_scout_tags)):
+            if self.zergling_scout_tags[i] == None or len(self.units.tags_in([self.zergling_scout_tags[i]])) == 0:
+                continue
             ling = self.units.tags_in([self.zergling_scout_tags[i]])[0]
             for j in range(0, len(self.scouting_path[i])):
                 self.do(ling.move(self.convert_location(Point2(self.scouting_path[i][j])), True))
         return True
+
+    async def send_ling_scout(self, ling, num):
+        for i in range(0, len(self.scouting_path[num])):
+            self.do(ling.move(self.convert_location(Point2(self.scouting_path[num][i])), True))
     
     async def scout_with_lings(self):
         if not (self.enemy_expos[1] or self.enemy_expos[2]):
@@ -790,8 +794,6 @@ class ZergBot(sc2.BotAI):
                     self.do(ling.move(self.convert_location(self.expos[7])))
                     self.last_ling_scout_time = self.time
                 
-            
-            
     
     def check_enemy_expansions(self):
         new_expos = [0, 0, 0, 0, 0, 0]
@@ -1385,6 +1387,7 @@ class ZergBot(sc2.BotAI):
             # if we have more than 90 army supply ready then go to the rally point
             if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags)) >= 100:
                 self.army_state = Enums.ArmyState.RALLYING
+                self.rally_time = self.time
                 await self.find_attack_and_rally_points()
                 for unit in self.units.tags_in(self.main_army_left):
                     self.do(unit.attack(Point2(self.army_rally_point_left)))
@@ -1397,6 +1400,15 @@ class ZergBot(sc2.BotAI):
                 self.army_state = Enums.ArmyState.PROTECTING
                 for unit in self.units.tags_in(self.main_army_left + self.main_army_right + self.creep_queens):
                     self.do(unit.attack(need_to_protect))
+            # if we've been rallying for a while just attack
+            if self.rally_time + 10 > self.time:
+                self.army_state = Enums.ArmyState.ATTACKING
+                for unit in self.units.tags_in(self.main_army_left):
+                    self.do(unit.attack(Point2(self.army_target_left)))
+                    self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
+                for unit in self.units.tags_in(self.main_army_right):
+                    self.do(unit.attack(Point2(self.army_target_right)))
+                    self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
             # is everyone in position?
             for unit in self.units.tags_in(self.main_army_left):
                 if unit.distance_to(Point2(self.army_rally_point_left)) > 10:
@@ -1996,7 +2008,12 @@ class ZergBot(sc2.BotAI):
         lings = self.units(ZERGLING).tags_in(self.main_army_left + self.main_army_right)
         if len(lings) > 0:
             self.do(lings[0](AbilityId.MORPHZERGLINGTOBANELING_BANELING))
-     
+
+    def make_dropperlord(self):
+        overlord = self.start_location.closest(self.units(OVERLORD).ready)
+        if self.can_afford(AbilityId.MORPH_OVERLORDTRANSPORT):
+            self.do(overlord(AbilityId.MORPH_OVERLORDTRANSPORT))
+
     async def build_extractor(self):
         """
         if self.vespene > 500 or (self.time < 360 and len(self.structures(EXTRACTOR)) >= 2):
@@ -2127,21 +2144,6 @@ class ZergBot(sc2.BotAI):
                 else:
                     self._client.debug_text_screen("\n"*(3-j) + " "*i + '1', (.3, .1), Point3((0, 255, 0)), 20)
 
-        
-        """if not self.has_debug and round(self.time) % self.debug_interval == 0:
-            self.has_debug = True
-            print("START DEBUG")
-            print(str(self.time_formatted))
-            print(str(self.enemy_unit_numbers))
-            print("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
-            print("next expo: " + str(self.last_expansion_time + 120) + " time " + str(self.time))
-            print(self.proxy_status.name)
-            print(self.proxy_units)
-            print(self.proxy_buildings)
-            print("END DEBUG")
-        elif self.has_debug and round(self.time) % self.debug_interval == 1:
-            self.has_debug = False"""
-    
     def set_up_map_graph(self):
         for index, point in enumerate(self.army_positions):
             self.army_positions[index] = self.convert_location(point)
@@ -2183,12 +2185,6 @@ class ZergBot(sc2.BotAI):
         return supply
     
     def update_difference_in_bases(self):
-        """
-        hatches = len(self.townhalls)
-        hatches += self.already_pending(HATCHERY)
-        enemy_bases = sum(self.enemy_expos) + 1
-        return hatches - enemy_bases
-        """
         return (len(self.townhalls) + self.already_pending(HATCHERY)) - (sum(self.enemy_expos) + 1)
 
     def update_saturation(self):
@@ -2221,12 +2217,12 @@ class ZergBot(sc2.BotAI):
             self.spread_inject_queens()
         elif unit.type_id == OVERLORD:
             self.position_new_overlord(unit)
-            """
-        elif unit.type_id == ZERGLING and len(self.units.tags_in([self.zergling_scout_tags])) < 6:
+        elif unit.type_id == ZERGLING and len(self.units.tags_in(self.zergling_scout_tags)) < 6:
             for i in range(0, len(self.zergling_scout_tags)):
                 if self.zergling_scout_tags[i] == None:
                     self.zergling_scout_tags[i] = unit.tag
-                    break"""
+                    await self.send_ling_scout(unit, i)
+                    break
         elif unit.type_id == SWARMHOSTMP:
             self.do(unit.smart(self.structures(NYDUSNETWORK)[0]))
         elif unit.type_id == DRONE:

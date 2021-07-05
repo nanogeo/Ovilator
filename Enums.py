@@ -66,3 +66,8 @@ class LingRunByState(Enum):
     CONSOLIDATING = 1
     MOVING_TO_RALLY = 2
     ATTACKING = 3
+
+class OvilatorState(Enum):
+    CONSOLIDATING = 1
+    MOVING_TO_POSITION = 2
+    ELEVATORING = 3

@@ -321,6 +321,8 @@ class LingBaneHydraBase(Plan):
             return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGMELEEWEAPONSLEVEL3, AbilityId.RESEARCH_ZERGMELEEWEAPONSLEVEL3)
         if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL3) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
             return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL3, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL3)
+        
+        return True
     
 class MacroLingBaneHydra(LingBaneHydraBase):
     @staticmethod
@@ -345,12 +347,21 @@ class MacroLingBaneHydra(LingBaneHydraBase):
                 if await MacroLingBaneHydra.expand_tech(bot):
                     if await MacroLingBaneHydra.make_drones(bot):
                         await MacroLingBaneHydra.make_army(bot)
+                    else:
+                        bot.add_debug_info("failed to make drones")
+                else:
+                    bot.add_debug_info("failed to expand tech")
+            else:
+                bot.add_debug_info("failed to make expansions")
+        else:
+            bot.add_debug_info("failed to make overlords")
 
     
     @staticmethod
     async def expand_tech(bot):
         
-        if not await MacroLingBaneHydra.get_upgrades(bot):
+        if bot.vespene > 100 and not await MacroLingBaneHydra.get_upgrades(bot):
+            bot.add_debug_info("failed to get upgrades")
             return False
         
         if bot.time > 240 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER)) < 1:
@@ -477,6 +488,14 @@ class BuildArmyLingBaneHydra(LingBaneHydraBase):
                 if await BuildArmyLingBaneHydra.make_drones(bot):
                     if await BuildArmyLingBaneHydra.expand_tech(bot):
                         await BuildArmyLingBaneHydra.make_expansions(bot)
+                    else:
+                        bot.add_debug_info("failed to expand tech")
+                else:
+                    bot.add_debug_info("failed to make drones")
+            else:
+                bot.add_debug_info("failed to make army")
+        else:
+            bot.add_debug_info("failed to make overlords")
 
     
         
@@ -508,6 +527,14 @@ class TechLingBaneHydra(LingBaneHydraBase):
                 if await TechLingBaneHydra.make_drones(bot):
                     if await TechLingBaneHydra.make_army(bot):
                         await TechLingBaneHydra.make_expansions(bot)
+                    else:
+                        bot.add_debug_info("failed to make army")
+                else:
+                    bot.add_debug_info("failed to make drones")
+            else:
+                bot.add_debug_info("failed to make overlords")
+        else:
+            bot.add_debug_info("failed to make overlords")
 
     
     @staticmethod
@@ -698,7 +725,7 @@ class RoachHydraBase(Plan):
 
     @staticmethod
     async def expand_tech(bot):
-        if not await RoachHydraBase.get_upgrades(bot):
+        if bot.vespene > 100 and not await RoachHydraBase.get_upgrades(bot):
             return False
 
         # 4:30 - 2x evo
@@ -894,6 +921,7 @@ class RoachHydraBase(Plan):
         if bot.already_pending_upgrade(UpgradeId.ZERGGROUNDARMORSLEVEL3) == 0 and len(bot.structures(UnitTypeId.EVOLUTIONCHAMBER).ready.idle) > 0:
             return bot.get_upgrade(UnitTypeId.EVOLUTIONCHAMBER, UpgradeId.ZERGGROUNDARMORSLEVEL3, AbilityId.RESEARCH_ZERGGROUNDARMORLEVEL3)
     
+        return True
     
 
 class MacroRoachHydra(RoachHydraBase):
@@ -918,7 +946,15 @@ class MacroRoachHydra(RoachHydraBase):
             if await MacroRoachHydra.expand_tech(bot):
                 if await MacroRoachHydra.make_expansions(bot):
                     if await MacroRoachHydra.make_drones(bot):
-                            await MacroRoachHydra.make_army(bot)
+                        await MacroRoachHydra.make_army(bot)
+                    else:
+                        bot.add_debug_info("failed to make drones")
+                else:
+                    bot.add_debug_info("failed to make expansions")
+            else:
+                bot.add_debug_info("failed to expand tech")
+        else:
+            bot.add_debug_info("failed to make overlords")
 
 
 class BuildArmyRoachHydra(RoachHydraBase):
@@ -940,6 +976,14 @@ class BuildArmyRoachHydra(RoachHydraBase):
                 if await BuildArmyRoachHydra.make_drones(bot):
                     if await BuildArmyRoachHydra.expand_tech(bot):
                         await BuildArmyRoachHydra.make_expansions(bot)
+                    else:
+                        bot.add_debug_info("failed to expand tech")
+                else:
+                    bot.add_debug_info("failed to make drones")
+            else:
+                bot.add_debug_info("failed to make army")
+        else:
+            bot.add_debug_info("failed to make overlords")
     
 
 
@@ -967,11 +1011,19 @@ class TechRoachHydra(RoachHydraBase):
     
     @staticmethod
     async def execute_plan(bot):
-        if await TechRoachHydra.expand_tech(bot):
-            if await TechRoachHydra.make_overlords(bot):
+        if await TechRoachHydra.make_overlords(bot):
+            if await TechRoachHydra.expand_tech(bot):
                 if await TechRoachHydra.make_drones(bot):
                     if await TechRoachHydra.make_army(bot):
                         await TechRoachHydra.make_expansions(bot)
+                    else:
+                        bot.add_debug_info("failed to make army")
+                else:
+                    bot.add_debug_info("failed to make drones")
+            else:
+                bot.add_debug_info("failed to expand tech")
+        else:
+            bot.add_debug_info("failed to make overlords")
         
     @staticmethod
     async def expand_tech(bot):
@@ -1207,7 +1259,7 @@ class ABCRoachTimingBase(Plan):
     @staticmethod
     async def make_drones(bot):
         # Queens
-        queen_need = 4
+        queen_need = 6
         if len(bot.units(UnitTypeId.QUEEN)) + bot.already_pending(UnitTypeId.QUEEN) < queen_need and bot.supply_used + 2 <= bot.supply_cap and len(bot.townhalls.ready.idle) > 0:
             if bot.minerals >= 150:
                 await bot.build_queen()
@@ -1276,6 +1328,13 @@ class ABCRoachTimingBase(Plan):
                 else:
                     return False
 
+        # dropperlords
+        dropperlord_need = 2
+        if len(bot.units(UnitTypeId.OVERLORDTRANSPORT)) < dropperlord_need:
+            if bot.can_afford(AbilityId.MORPH_OVERLORDTRANSPORT):
+                bot.make_dropperlord()
+            else:
+                return False
 
         return True
 

@@ -5,7 +5,7 @@ from sc2.player import Bot, Computer
 from sc2.unit import Unit
 from sc2.units import Units
 from sc2.position import Point2, Point3
-from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK, LOCUSTMP, LOCUSTMPFLYING
+from sc2.constants import EGG, DRONE, QUEEN, ZERGLING, BANELING, ROACH, RAVAGER, HYDRALISK, LURKER, MUTALISK, CORRUPTOR, BROODLORD, OVERLORD, OVERSEER, INFESTOR, SWARMHOSTMP, LARVA, VIPER, ULTRALISK, LOCUSTMP, LOCUSTMPFLYING, OVERLORDTRANSPORT
 from sc2.constants import ROACHBURROWED
 from sc2.constants import HATCHERY, LAIR, HIVE, EXTRACTOR, SPAWNINGPOOL, ROACHWARREN, HYDRALISKDEN, LURKERDEN, SPIRE, GREATERSPIRE, EVOLUTIONCHAMBER, SPORECRAWLER, SPINECRAWLER, INFESTATIONPIT, BANELINGNEST, CREEPTUMOR, NYDUSNETWORK, NYDUSCANAL, ULTRALISKCAVERN, CREEPTUMORBURROWED, CREEPTUMORQUEEN
 from sc2.constants import PROBE, ZEALOT, STALKER, SENTRY, ADEPT, HIGHTEMPLAR, DARKTEMPLAR, IMMORTAL, COLOSSUS, DISRUPTOR, ARCHON, OBSERVER, WARPPRISM, PHOENIX, VOIDRAY, ORACLE, CARRIER, TEMPEST, MOTHERSHIP
@@ -252,6 +252,8 @@ class ZergBot(sc2.BotAI):
         self.my_pixel_map = []
         self.set_of_non_creep_points = [[set(), set(), set(), set()], [set(), set(), set(), set()], [set(), set(), set(), set()], [set(), set(), set(), set()]]
         self.quad_creep_locations = [[[], [], [], []], [[], [], [], []], [[], [], [], []], [[], [], [], []]]
+        self.overseer_defense = None
+
 
         self.unit_ratio = None
 
@@ -335,6 +337,8 @@ class ZergBot(sc2.BotAI):
         self.army_target_left = None
         self.army_target_right = None
         self.non_army_units = []
+        self.overseer_left = None
+        self.overseer_right = None
         self.army_defense_points_left = [(51, 21),
                                         (97, 22),
                                         (106, 39),
@@ -637,19 +641,6 @@ class ZergBot(sc2.BotAI):
                 break
             
     async def position_overlords(self):
-        """
-        for i in range(0, len(self.overlord_positions)):
-            pos = self.convert_location(self.overlord_positions[i])
-            height = self.get_terrain_z_height(Point2(self.overlord_positions[i]))
-            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 255, 0)))
-            self._client.debug_text_world("ovi " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 255, 0)), 16)
-        
-        for i in range(0, len(self.rally_points)):
-            pos = self.convert_location(self.rally_points[i])
-            height = self.get_terrain_z_height(Point2(self.rally_points[i]))
-            self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 2, color = Point3((255, 0, 0)))
-            self._client.debug_text_world("rally " + str(i), Point3((pos[0], pos[1], height)), Point3((255, 0, 0)), 16)
-        """   
         
         new_expos = self.check_enemy_expansions()
         if new_expos[1]:
@@ -682,6 +673,35 @@ class ZergBot(sc2.BotAI):
                 if self.units.tags_in([ovi_tag]):
                     self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
     
+    def make_overseers(self):
+        if self.time > 240 and len(self.structures({LAIR, HIVE}).ready) > 0 and len(self.units({OVERSEER, UnitTypeId.OVERLORDCOCOON})) < 3:
+            ovi = self.units(OVERLORD).closest_to(self.start_location)
+            if self.can_afford(AbilityId.MORPH_OVERSEER):
+                self.do(ovi(AbilityId.MORPH_OVERSEER))
+                return True
+            else:
+                return False
+        return True
+
+    def add_new_overseer(self, unit_tag):
+        if self.overseer_defense == None:
+            self.overseer_defense = unit_tag
+        elif self.overseer_left == None:
+            self.overseer_left = unit_tag
+        elif self.overseer_right == None:
+            self.overseer_right = unit_tag
+        else:
+            print("too many overseers")
+
+    def remove_overseer(self, unit_tag):
+        if self.overseer_defense == unit_tag:
+            self.overseer_defense = None
+        elif self.overseer_left == unit_tag:
+            self.overseer_left = None
+        elif self.overseer_right == unit_tag:
+            self.overseer_right = None
+        else:
+            print("overseer not known")
  
 ########################################
 ############### SCOUTING ###############
@@ -1333,6 +1353,8 @@ class ZergBot(sc2.BotAI):
 ########################################
 
     async def micro(self):
+        await self.micro_overseers()
+
         need_to_protect = None
         # are we being attacked right now?
         for enemy in self.enemy_units.exclude_type([DRONE, PROBE, SCV]):
@@ -1550,7 +1572,25 @@ class ZergBot(sc2.BotAI):
                     self.do(queen(AbilityId.TRANSFUSION_TRANSFUSION, unit))
                     low_units.remove(unit)
                     break
-    
+                
+    async def micro_overseers(self):
+        if len(self.units.tags_in(self.creep_queens)) > 0 and self.overseer_defense != None:
+            center = self.units.tags_in(self.creep_queens).center
+            for unit in self.units.tags_in([self.overseer_defense]):
+                if unit.distance_to(center) > 2:
+                    self.do(unit.move(center))
+        if len(self.units.tags_in(self.main_army_left)) > 0 and self.overseer_left != None:
+            center = self.units.tags_in(self.main_army_left).center
+            for unit in self.units.tags_in([self.overseer_left]):
+                if unit.distance_to(center) > 2:
+                    self.do(unit.move(center))
+        if len(self.units.tags_in(self.main_army_right)) > 0 and self.overseer_right != None:
+            center = self.units.tags_in(self.main_army_right).center
+            for unit in self.units.tags_in([self.overseer_right]):
+                if unit.distance_to(center) > 2:
+                    self.do(unit.move(center))
+
+
     async def micro_roach(self, roach):
         if roach.health_percentage < .7 and self.burrow_researched and self.burrow_movement_researched and not roach.is_burrowed:
             self.do(roach(AbilityId.BURROWDOWN_ROACH))
@@ -2229,13 +2269,18 @@ class ZergBot(sc2.BotAI):
             self.do(unit.smart(self.structures(NYDUSNETWORK)[0]))
         elif unit.type_id == DRONE:
             self.place_drone(unit)
-        elif unit.type_id not in [LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]:
+        elif unit.type_id == OVERSEER:
+            self.add_new_overseer(unit.tag)
+        elif unit.type_id not in [LARVA, EGG, DRONE, QUEEN, OVERLORD, OVERSEER, OVERLORDTRANSPORT, MUTALISK, SWARMHOSTMP]:
             # TODO make this better
             if len(self.main_army_left) < len(self.main_army_right):
                 self.main_army_left.append(unit.tag)
             else:
                 self.main_army_right.append(unit.tag)
 
+    async def on_unit_type_changed(self, unit, previous_type):
+        if unit.type_id == OVERSEER:
+            self.add_new_overseer(unit.tag)
     
     async def on_building_construction_complete(self, building):
         if building.type_id == UnitTypeId.HATCHERY:
@@ -2332,6 +2377,8 @@ class ZergBot(sc2.BotAI):
         if unit_tag in self.main_army_right:
             self.main_army_right.remove(unit_tag)
         
+        if unit_tag in [self.overseer_defense, self.overseer_left, self.overseer_right]:
+            self.remove_overseer(unit_tag)
         
     def convert_location(self, location):
         if self.start_location == Point2((143.5, 32.5)):

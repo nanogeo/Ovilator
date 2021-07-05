@@ -48,6 +48,11 @@ class Plan:
                 current_cap += 8
             else:
                 return False
+
+        # make overseers
+        if not bot.make_overseers():
+            bot.add_debug_info("failed to make overseers")
+            return False
         return True
     
     @staticmethod

@@ -1385,7 +1385,7 @@ class ZergBot(sc2.BotAI):
                 for unit in self.units.tags_in(self.main_army_left + self.main_army_right + self.creep_queens):
                     self.do(unit.attack(need_to_protect))
             # if we have more than 90 army supply ready then go to the rally point
-            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.exclude_type([LARVA, EGG, DRONE, QUEEN, OVERLORD, MUTALISK, SWARMHOSTMP]).tags_not_in(self.zergling_scout_tags)) >= 100:
+            if sum(self.calculate_supply_cost(unit.type_id) for unit in self.units.tags_in(self.main_army_left + self.main_army_right)) >= 90:
                 self.army_state = Enums.ArmyState.RALLYING
                 self.rally_time = self.time
                 await self.find_attack_and_rally_points()
@@ -1401,7 +1401,8 @@ class ZergBot(sc2.BotAI):
                 for unit in self.units.tags_in(self.main_army_left + self.main_army_right + self.creep_queens):
                     self.do(unit.attack(need_to_protect))
             # if we've been rallying for a while just attack
-            if self.rally_time + 10 > self.time:
+            print("rally time " + str(self.rally_time + 20))
+            if (self.rally_time + 20) < self.time:
                 self.army_state = Enums.ArmyState.ATTACKING
                 for unit in self.units.tags_in(self.main_army_left):
                     self.do(unit.attack(Point2(self.army_target_left)))
@@ -1409,6 +1410,7 @@ class ZergBot(sc2.BotAI):
                 for unit in self.units.tags_in(self.main_army_right):
                     self.do(unit.attack(Point2(self.army_target_right)))
                     self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
+                return
             # is everyone in position?
             for unit in self.units.tags_in(self.main_army_left):
                 if unit.distance_to(Point2(self.army_rally_point_left)) > 10:

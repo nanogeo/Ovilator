@@ -102,7 +102,6 @@ class Ovilator(SpecialAction):
 	@staticmethod
 	def check_prereqs(bot):
 		# ovi speed
-		# enemy has 2 + bases
 		# enemy doesnt have triange 3rd
 		if (bot.already_pending_upgrade(UpgradeId.OVERLORDSPEED) < 1 or
 			True):

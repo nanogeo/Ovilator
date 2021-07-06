@@ -1127,9 +1127,7 @@ class TechRoachHydra(RoachHydraBase):
                                 bot.do(hatch(AbilityId.UPGRADETOHIVE_HIVE))
             else:
                 return False
-        
-
-
+  
 
 class MacroRoachSwarmHost(Plan):
     conditions = []
@@ -1232,7 +1230,7 @@ class ABCRoachTimingBase(Plan):
 
     @staticmethod
     async def expand_tech(bot):
-        if not await MacroLingBaneHydra.get_upgrades(bot):
+        if not await ABCRoachTimingBase.get_upgrades(bot):
             return False
         
         if bot.time > 210 and len(bot.structures(UnitTypeId.ROACHWARREN)) < 1:

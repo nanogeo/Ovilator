@@ -1457,6 +1457,10 @@ class ZergBot(sc2.BotAI):
                 self.do(unit.attack(Point2(self.army_target_right)))
                 self.do(unit.attack(Point2(self.enemy_start_locations[0]), queue = True))
         elif self.army_state == Enums.ArmyState.ATTACKING:
+            avg_dist_left = self.median_center(self.units.tags_in(self.main_army_left)).distance_to(self.army_target_left)
+            for unit in self.units.tags_in(self.main_army_left):
+                if unit.position.distance_to(self.army_target_left) > avg_dist_left:
+                    self._client.debug_sphere_out(unit.position3d, 1, color = Point3((255, 255, 0)))
             enemy_supply = 0
             # determine enemy army supply
             for tag in self.enemy_unit_tags.keys():
@@ -2193,8 +2197,25 @@ class ZergBot(sc2.BotAI):
             for j in range(0, len(self.army_position_links[i])):
                 self.map_graph.add_edge(i, self.army_position_links[i][j], Point2(self.army_positions[i]).distance_to(Point2(self.army_positions[self.army_position_links[i][j]])))
 
+    def median_center(self, units):
+        guess = units.center
+        done = False
+        tests = [Point2((0, 1)), Point2((1, 0)), Point2((-1, 0)), Point2((0, -1))]
+        dist = sum(unit.position.distance_to(guess) for unit in units)
 
-
+        while not done:
+            done = True
+            for test in tests:
+                new_guess = guess + test
+                new_dist = sum(unit.position.distance_to(new_guess) for unit in units)
+                if new_dist < dist:
+                    guess = new_guess
+                    dist = new_dist
+                    done = False
+                    break
+            if done:
+                break
+        return guess
     
 
     async def test_build_conditions(self):
@@ -2613,7 +2634,7 @@ class ZergBot(sc2.BotAI):
         
 run_game(maps.get("LightshadeLE"), [
         Bot(Race.Zerg, ZergBot()),
-        Computer(Race.Terran, Difficulty.VeryHard)
+        Computer(Race.Terran, Difficulty.Medium)
         ], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane

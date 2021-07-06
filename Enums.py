@@ -15,6 +15,8 @@ class ArmyComp(Enum):
     ROACH_HYDRA = 2
     LING_BANE_MUTA = 3
     ROACH_SWARM_HOST = 4
+    LING_FLOOD = 5
+    ABC_ROACH = 6
 
 class ArmyState(Enum):
     CONSOLIDATING = 1

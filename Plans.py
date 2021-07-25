@@ -128,7 +128,7 @@ class LingBaneHydraBase(Plan):
 		
 	@staticmethod
 	async def make_expansions(bot):
-		if (sum(bot.enemy_expos) + 1 >= len(bot.townhalls) + bot.already_pending(UnitTypeId.HATCHERY)) or (bot.minerals > 600 and not bot.already_pending(UnitTypeId.HATCHERY)):
+		if (bot.get_num_enemy_bases() >= len(bot.townhalls) + bot.already_pending(UnitTypeId.HATCHERY)) or (bot.minerals > 600 and not bot.already_pending(UnitTypeId.HATCHERY)):
 			if bot.minerals >= 300:
 				bot.add_debug_info("make exop")
 				bot.last_expansion_time = bot.time

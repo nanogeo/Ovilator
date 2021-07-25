@@ -47,7 +47,7 @@ class LingRunby(SpecialAction):
 		# have 8+ lings unassigned
 		if (bot.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED) < 1 or
 			bot.army_state != Enums.ArmyState.CONSOLIDATING or
-			not (sum(bot.enemy_expos) + 1 > 3 or (bot.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK and bot.threat_level < 1)) or
+			not (bot.get_num_enemy_bases() > 3 or (bot.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK and bot.threat_level < 1)) or
 			len(bot.units(UnitTypeId.ZERGLING).tags_in(bot.main_army_left + bot.main_army_right)) < 8):
 			return False
 		return True

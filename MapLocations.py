@@ -42,157 +42,105 @@ class LightShadeLocations:
 		self.start_location = start_location
 
 		# Map
-		self.army_positions = [self.convert_location((132, 78)),
-								self.convert_location((119, 94)),
-								self.convert_location((146, 94)),
-								self.convert_location((132, 141)),
-								self.convert_location((54, 23)),
-								self.convert_location((92, 125)),
-								self.convert_location((72, 97)),
-								self.convert_location((125, 119)),
-								self.convert_location((111, 63)),
-								self.convert_location((97, 48)),
-								self.convert_location((82, 113)),
-								self.convert_location((86, 61)),
-								self.convert_location((34, 39)),
-								self.convert_location((112, 129)),
-								self.convert_location((50, 57)),
-								self.convert_location((106, 81)),
-								self.convert_location((99, 104)),
-								self.convert_location((66, 72)),
-								self.convert_location((150, 127)),
-								self.convert_location((79, 82)),
-								self.convert_location((73, 35)),
-								self.convert_location((134, 106)),
-								self.convert_location((61, 44)),
-								self.convert_location((91, 33))]
-		self.army_position_links = [[1, 2],
-									[0, 15, 16, 21],
-									[0, 21],
-									[13, 18],
-									[12, 20],
-									[10, 13, 16],
-									[10, 17, 19],
-									[13, 21],
-									[9, 15],
-									[8, 11, 23],
-									[5, 6],
-									[9, 17, 19],
-									[4, 14],
-									[3, 5, 7],
-									[12, 17, 22],
-									[1, 8, 16, 19],
-									[1, 5, 10, 15],
-									[6, 11, 14, 19],
-									[3, 21],
-									[6, 11, 15, 17],
-									[4, 22, 23],
-									[1, 2, 7, 18],
-									[14, 20],
-									[9, 20]]
-		self.map_graph = Graph()
-		for i in range(0, len(self.army_position_links)):
-			for j in range(0, len(self.army_position_links[i])):
-				self.map_graph.add_edge(i, self.army_position_links[i][j], self.army_positions[i].distance_to(self.army_positions[self.army_position_links[i][j]]))
-
-		self.new_map_points = [(109, 90),
-								(104, 131),
-								(122, 93),
-								(108, 50),
-								(115, 69),
-								(104, 108),
-								(111, 101),
-								(133, 105),
-								(127, 100),
-								(111, 77),
-								(100, 51),
-								(103, 85),
-								(119, 62),
-								(141, 92),
-								(109, 68),
-								(99, 80),
-								(113, 125),
-								(103, 41),
-								(112, 132),
-								(116, 118),
-								(146, 119),
-								(123, 116),
-								(141, 130),
-								(136, 136),
-								(94, 111),
-								(116, 96),
-								(111, 84),
-								(138, 84),
-								(94, 99),
-								(92, 82),
-								(132, 70),
-								(103, 76),
-								(119, 137),
-								(115, 89),
-								(129, 112),
-								(109, 59),
-								(141, 110),
-								(96, 30),
-								(125, 84),
-								(102, 94),
-								(129, 64),
-								(87, 33),
-								(93, 42),
-								(99, 103),
-								(138, 66),
-								(128, 140),
-								(140, 100),
-								(108, 112),
-								(131, 78), # mid
-								(75, 74),  # mid
-								(80, 33),
-								(62, 71),
-								(76, 114),
-								(69, 95),
-								(80, 56),
-								(73, 63),
-								(51, 59),
-								(57, 64),
-								(73, 87),
-								(84, 113),
-								(81, 79),
-								(65, 102),
-								(43, 72),
-								(75, 96),
-								(85, 84),
-								(71, 39),
-								(81, 123),
-								(72, 32),
-								(68, 46),
-								(38, 45),
-								(61, 48),
-								(43, 34),
-								(48, 28),
-								(90, 53),
-								(68, 68),
-								(73, 80),
-								(46, 80),
-								(90, 65),
-								(92, 82),
-								(52, 94),
-								(81, 88),
-								(65, 27),
-								(69, 75),
-								(55, 52),
-								(75, 105),
-								(43, 54),
-								(88, 134),
-								(59, 80),
-								(82, 70),
-								(55, 100),
-								(97, 131),
-								(91, 122),
-								(85, 61),
-								(46, 98),
-								(56, 24),
-								(44, 64),
-								(76, 52),
-								(53, 86)]
+		self.new_map_points = [self.convert_location((109, 90)),
+								self.convert_location((104, 131)),
+								self.convert_location((122, 93)),
+								self.convert_location((108, 50)),
+								self.convert_location((115, 69)),
+								self.convert_location((104, 108)),
+								self.convert_location((111, 101)),
+								self.convert_location((133, 105)),
+								self.convert_location((127, 100)),
+								self.convert_location((111, 77)),
+								self.convert_location((100, 51)),
+								self.convert_location((103, 85)),
+								self.convert_location((119, 62)),
+								self.convert_location((141, 92)),
+								self.convert_location((109, 68)),
+								self.convert_location((99, 80)),
+								self.convert_location((113, 125)),
+								self.convert_location((103, 41)),
+								self.convert_location((112, 132)),
+								self.convert_location((116, 118)),
+								self.convert_location((146, 119)),
+								self.convert_location((123, 116)),
+								self.convert_location((141, 130)),
+								self.convert_location((136, 136)),
+								self.convert_location((94, 111)),
+								self.convert_location((116, 96)),
+								self.convert_location((111, 84)),
+								self.convert_location((138, 84)),
+								self.convert_location((94, 99)),
+								self.convert_location((92, 82)),
+								self.convert_location((132, 70)),
+								self.convert_location((103, 76)),
+								self.convert_location((119, 137)),
+								self.convert_location((115, 89)),
+								self.convert_location((129, 112)),
+								self.convert_location((109, 59)),
+								self.convert_location((141, 110)),
+								self.convert_location((96, 30)),
+								self.convert_location((125, 84)),
+								self.convert_location((102, 94)),
+								self.convert_location((129, 64)),
+								self.convert_location((87, 33)),
+								self.convert_location((93, 42)),
+								self.convert_location((99, 103)),
+								self.convert_location((138, 66)),
+								self.convert_location((128, 140)),
+								self.convert_location((140, 100)),
+								self.convert_location((108, 112)),
+								self.convert_location((131, 78)), # mid
+								self.convert_location((75, 74)),  # mid
+								self.convert_location((80, 33)),
+								self.convert_location((62, 71)),
+								self.convert_location((76, 114)),
+								self.convert_location((69, 95)),
+								self.convert_location((80, 56)),
+								self.convert_location((73, 63)),
+								self.convert_location((51, 59)),
+								self.convert_location((57, 64)),
+								self.convert_location((73, 87)),
+								self.convert_location((84, 113)),
+								self.convert_location((81, 79)),
+								self.convert_location((65, 102)),
+								self.convert_location((43, 72)),
+								self.convert_location((75, 96)),
+								self.convert_location((85, 84)),
+								self.convert_location((71, 39)),
+								self.convert_location((81, 123)),
+								self.convert_location((72, 32)),
+								self.convert_location((68, 46)),
+								self.convert_location((38, 45)),
+								self.convert_location((61, 48)),
+								self.convert_location((43, 34)),
+								self.convert_location((48, 28)),
+								self.convert_location((90, 53)),
+								self.convert_location((68, 68)),
+								self.convert_location((73, 80)),
+								self.convert_location((46, 80)),
+								self.convert_location((90, 65)),
+								self.convert_location((92, 82)),
+								self.convert_location((52, 94)),
+								self.convert_location((81, 88)),
+								self.convert_location((65, 27)),
+								self.convert_location((69, 75)),
+								self.convert_location((55, 52)),
+								self.convert_location((75, 105)),
+								self.convert_location((43, 54)),
+								self.convert_location((88, 134)),
+								self.convert_location((59, 80)),
+								self.convert_location((82, 70)),
+								self.convert_location((55, 100)),
+								self.convert_location((97, 131)),
+								self.convert_location((91, 122)),
+								self.convert_location((85, 61)),
+								self.convert_location((46, 98)),
+								self.convert_location((56, 24)),
+								self.convert_location((44, 64)),
+								self.convert_location((76, 52)),
+								self.convert_location((53, 86))]
+		# TODO remove self if this is unused
 		self.new_map_edges = [[11, 25, 26, 33, 39], # 0
 								[16, 18, 90],
 								[8, 25, 33, 38],
@@ -207,7 +155,7 @@ class LightShadeLocations:
 								[0, 15, 26, 39],
 								[4, 35, 40],
 								[27, 46],
-								[4, 9, 35],
+								[4, 9, 31, 35],
 								[11, 29, 31], # 15
 								[1, 18, 19, 32],
 								[3, 10, 37, 42],
@@ -224,7 +172,7 @@ class LightShadeLocations:
 								[39, 43],
 								[15, 64],
 								[40, 44, 48], # 30
-								[9, 15, 26],
+								[9, 14, 15, 26],
 								[16, 18, 45],
 								[0, 2, 25, 26, 38],
 								[7, 8, 21, 36],
@@ -290,82 +238,86 @@ class LightShadeLocations:
 								[72, 81],
 								[56, 57, 62, 85], # 95
 								[54, 55], # add 68 after rocks
-								[76, 79, 87]]
-		
+								[76, 79, 87]]	
+
+		self.map_graph = Graph()
+		for i in range(0, len(self.new_map_edges)):
+			point1 = self.new_map_points[i]
+			for j in range(0, len(self.new_map_edges[i])):
+				point2 = self.new_map_points[self.new_map_edges[i][j]]
+				self.map_graph.add_edge(point1, point2, point1.distance_to(point2))
 
 		# Bases
-		if start_location == Point2((143.5, 32.5)):
-			self.base_main = Point2((143.5, 32.5))
-			self.base_natural = Point2((145.5, 61.5)) 
-			self.bases_left = [Point2((119.5, 53.5)),
-								Point2((104.5, 27.5))]
-			self.bases_right = [Point2((147.5, 94.5)),
-								Point2((148.5, 125.5)),
-								Point2((124.5, 120.5))]
-
-			self.enemy_base_main = Point2((40.5, 131.5))
-			self.enemy_base_natural = Point2((38.5, 102.5))
-			self.enemy_bases_left = [Point2((64.5, 110.5)),
-									Point2((79.5, 136.5))]
-			self.enemy_bases_right = [Point2((36.5, 69.5)),
-										Point2((35.5, 38.5)),
-										Point2((59.5, 43.5))]
-
-			self.base_edges = [  [],
-								[44],
-								[3, 32, 35, 40],
-								[17, 37],
-								[13, 46],
-								[20, 22],
-								[16, 19, 21, 34],
-								[],
-								[93],
-								[52, 61, 84, 89],
-								[66, 86],
-								[62, 95],
-								[69, 71],
-								[65, 68, 70, 83]]
-			for i in range(0, len(self.base_edges)):
-				for j in range(0, len(self.base_edges[i])):
-					self.map_graph.add_edge(i, self.base_edges[i][j], self.base_edges[i].distance_to(self.base_edges[self.base_edges[i][j]]))
-		else:
-			self.enemy_base_main = Point2((143.5, 32.5))
-			self.enemy_base_natural = Point2((145.5, 61.5)) 
-			self.enemy_bases_left = [Point2((119.5, 53.5)),
-									Point2((104.5, 27.5))]
-			self.enemy_bases_right = [Point2((147.5, 94.5)),
-										Point2((148.5, 125.5)),
-										Point2((124.5, 120.5))]
-
-			self.base_main = Point2((40.5, 131.5))
-			self.base_natural = Point2((38.5, 102.5))
-			self.bases_left = [Point2((64.5, 110.5)),
-								Point2((79.5, 136.5))]
-			self.bases_right = [Point2((36.5, 69.5)),
-								Point2((35.5, 38.5)),
-								Point2((59.5, 43.5))]
-
-			self.base_edge = [  [],
-								[93],
-								[52, 61, 84, 89],
-								[66, 86],
-								[62, 95],
-								[69, 71],
-								[65, 68, 70, 83],
-								[],
-								[44],
-								[3, 32, 35, 40],
-								[17, 37],
-								[13, 46],
-								[20, 22],
-								[16, 19, 21, 34]]
+		self.base_main = self.convert_location((143.5, 32.5))
+		self.base_natural = self.convert_location((145.5, 61.5)) 
+		base_natural_edge = 44
+		self.map_graph.add_edge(self.base_natural, self.new_map_points[base_natural_edge], self.base_natural.distance_to(self.new_map_points[base_natural_edge]))
+		self.map_graph.add_edge(self.new_map_points[base_natural_edge], self.base_natural, self.base_natural.distance_to(self.new_map_points[base_natural_edge]))
 		
+		self.bases_left = [self.convert_location((119.5, 53.5)),
+								self.convert_location((104.5, 27.5))]
+		bases_left_edges = [[3, 12, 35, 40],
+							[17, 37]]
+		for i in range(0, len(bases_left_edges)):
+			point1 = self.bases_left[i]
+			for j in range(0, len(bases_left_edges[i])):
+				point2 = self.new_map_points[bases_left_edges[i][j]]
+				self.map_graph.add_edge(point1, point2, point1.distance_to(point2))
+				self.map_graph.add_edge(point2, point1, point1.distance_to(point2))
+
+		self.bases_right = [self.convert_location((147.5, 94.5)),
+									self.convert_location((148.5, 125.5)),
+									self.convert_location((124.5, 120.5))]
+		bases_right_edges = [[13, 46],
+							[20, 22],
+							[16, 19, 21, 34]]
+		for i in range(0, len(bases_right_edges)):
+			point1 = self.bases_right[i]
+			for j in range(0, len(bases_right_edges[i])):
+				point2 = self.new_map_points[bases_right_edges[i][j]]
+				self.map_graph.add_edge(point1, point2, point1.distance_to(point2))
+				self.map_graph.add_edge(point2, point1, point1.distance_to(point2))
+
+		
+
+		self.enemy_base_main = self.convert_location((40.5, 131.5))
+		self.enemy_base_natural = self.convert_location((38.5, 102.5))
+		enemy_base_natural_edge = 93
+		self.map_graph.add_edge(self.enemy_base_natural, self.new_map_points[enemy_base_natural_edge], self.enemy_base_natural.distance_to(self.new_map_points[enemy_base_natural_edge]))
+		self.map_graph.add_edge(self.new_map_points[enemy_base_natural_edge], self.enemy_base_natural, self.enemy_base_natural.distance_to(self.new_map_points[enemy_base_natural_edge]))
+		
+		self.enemy_bases_left = [self.convert_location((64.5, 110.5)),
+							self.convert_location((79.5, 136.5))]
+		enemy_bases_left_edges = [	[52, 61, 84, 89],
+									[66, 86]]
+		for i in range(0, len(enemy_bases_left_edges)):
+			point1 = self.enemy_bases_left[i]
+			for j in range(0, len(enemy_bases_left_edges[i])):
+				point2 = self.new_map_points[enemy_bases_left_edges[i][j]]
+				self.map_graph.add_edge(point1, point2, point1.distance_to(point2))
+				self.map_graph.add_edge(point2, point1, point1.distance_to(point2))
+		self.enemy_bases_right = [self.convert_location((36.5, 69.5)),
+							self.convert_location((35.5, 38.5)),
+							self.convert_location((59.5, 43.5))]
+		enemy_bases_right_edges = [	[62, 95],
+									[69, 71],
+									[65, 68, 70, 83]]
+		for i in range(0, len(enemy_bases_right_edges)):
+			point1 = self.enemy_bases_right[i]
+			for j in range(0, len(enemy_bases_right_edges[i])):
+				point2 = self.new_map_points[enemy_bases_right_edges[i][j]]
+				self.map_graph.add_edge(point1, point2, point1.distance_to(point2))
+				self.map_graph.add_edge(point2, point1, point1.distance_to(point2))
+		
+
+		self.bases = [self.base_main, self.base_natural] + self.bases_left + self.bases_right
+		self.enemy_bases = [self.enemy_base_main, self.enemy_base_natural] + self.enemy_bases_left + self.enemy_bases_right
+
 		
 
 
 		# Army
-		self.possible_attack_points = [23, 9, 8, 0, 2]
-		self.enemy_launch_points = [5, 6, 10, 14, 17]
+		
 		self.army_defense_points_left = [self.convert_location((51, 21)),
 										self.convert_location((97, 22)),
 										self.convert_location((106, 39)),
@@ -378,16 +330,20 @@ class LightShadeLocations:
 										self.convert_location((146, 133))]
 		self.army_consolidation_point_left = self.convert_location((100, 42))
 		self.army_consolidation_point_right = self.convert_location((130, 78))
-		self.rally_points = [self.convert_location((114, 131)),
-							self.convert_location((84, 117)),
-							self.convert_location((40, 70)),
-							self.convert_location((68, 68)),
-							self.convert_location((101, 106)),
-							self.convert_location((60, 46)),
-							self.convert_location((93, 123)),
-							self.convert_location((80, 81))]
 		
-
+		
+		self.rally_points_left = [self.convert_location((84, 117)),
+									self.convert_location((93, 123)),
+									self.convert_location((114, 131))]
+		self.rally_points_right = [self.convert_location((40, 70)),
+									self.convert_location((60, 46)),
+									self.convert_location((87, 33)),
+									self.convert_location((65, 27))]
+		
+		
+		
+		self.ling_runby_left_rally = self.convert_location((129, 141))
+		self.ling_runby_right_rally = self.convert_location((55, 23))
 
 		""" 
 		self.muta_attack_positions = [self.convert_location((57, 41)),
@@ -456,22 +412,7 @@ class LightShadeLocations:
 								self.convert_location((141, 42)),
 								self.convert_location((115, 65)),
 								self.convert_location((139, 65))]
-		"""
-		self.expos = [self.convert_location((143.5, 32.5)),    # BR main
-					self.convert_location((148.5, 125.5)),     # BR inline 5th
-					self.convert_location((79.5, 136.5)),      # TL triangle 5th
-					self.convert_location((36.5, 69.5)),       # TL inline 3rd
-					self.convert_location((59.5, 43.5)),       # TL middle
-					self.convert_location((119.5, 53.5)),      # BR triangle 3rd
-					self.convert_location((35.5, 38.5)),       # TL inline 5th
-					self.convert_location((38.5, 102.5)),      # TL natural
-					self.convert_location((124.5, 120.5)),     # BR middle
-					self.convert_location((64.5, 110.5)),      # TL triangle 3rd
-					self.convert_location((145.5, 61.5)),      # BR natural
-					self.convert_location((147.5, 94.5)),      # BR inline 3rd
-					self.convert_location((104.5, 27.5)),      # BR triangle 5th
-					self.convert_location((40.5, 131.5))]       # TL main
-
+		
 		# overlords
 
 		self.overlord_positions = [ self.convert_location((42, 92)),	#	enemy natural pillar
@@ -505,4 +446,3 @@ class LightShadeLocations:
 									self.convert_location((60, 56)),	#	enemy inline 3rd exit pillar
 									self.convert_location((58, 119))]	#	elevator
 		
-		"""

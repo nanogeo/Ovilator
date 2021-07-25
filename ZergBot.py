@@ -49,16 +49,16 @@ class BlankBot(sc2.BotAI):
 	
 	async def on_start(self):
 		self.hi = MapLocations.LightShadeLocations(self.start_location)
-		for i in range(0, len(self.expansion_locations_list)):
-			print(self.expansion_locations_list[i])
+		
 			 
 
 	async def on_step(self, iteration):
-		for i in range(0, len(self.expansion_locations_list)):
-			pos = self.expansion_locations_list[i]
-			height = self.get_terrain_z_height(Point2(pos))
+		for pos in self.hi.map_graph.get_nodes():
+			height = self.get_terrain_z_height(pos) + .2
 			self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 1, color = Point3((255, 255, 0)))
-			self._client.debug_text_world(str(i), Point3((pos[0], pos[1], height)), color = Point3((255, 255, 0)), size = 20)
+			for other in self.hi.map_graph.get_adjacent_nodes(pos):
+				other_height = self.get_terrain_z_height(other) + .2
+				self._client.debug_line_out(Point3((pos[0], pos[1], height)), Point3((other[0], other[1], other_height)), color = Point3((255, 255, 0)))
 		
 	
 
@@ -181,55 +181,13 @@ class ZergBot(sc2.BotAI):
 		self.tag_to_unit = {} # {unit_tag : unit} updated each iteration
 		self.add_new_base = None
 		
-		self.overlord_positions = [ (42, 92),	#	enemy natural pillar
-									(122, 78),	#	natural enterance pillar
-									(64, 147),	#	near enemy main
-									(62, 86),	#	enemy natural exit pillar
-									(46, 71),	#	enemy inline 3rd
-									(70, 103),	#	enemy triangle 3rd enemy natural exit 2
-									(24, 85),	#	enemy natural deadspace
-									(69, 73),	#	enemy natural exit
-									(84, 50),	#	close left route pillar
-									(105, 95),	#	close right route 2
-									(24, 147),	#	behind enemy main
-									(86, 126),	#	enemy 5th base
-									(159, 81),	#	close deadspace
-									(119, 19),	#	close opposite deadspace
-									(100, 114),	#	close right route pillar
-									(90, 90),	#	right middle route pillar - replace
-									(94, 74),	#	left middle route pillar - replace
-									(64, 34),	#	farthest left route pillar
-									(40, 60),	#	enemy inline 3rd pillar - move to
-									(42, 35),	#	enemy inline 4th
-									(60, 56),	#	enemy inline 3rd exit pillar
-									(77, 19),	#	far opposite deadspace
-									(106, 146),	#	far right deadspace
-									(120, 130),	#	far right route pillar - add
-									(159, 112),	#	far deadspace
-									(25, 54),	#	enemy inline 3rd space
-									(153, 143),	#	right corner
-									(31, 22), 	#	left corner
-									(60, 56),	#	enemy inline 3rd exit pillar
-									(58, 119)]	#	elevator
 									
-		self.expos = [(143.5, 32.5),    # BR main
-					(148.5, 125.5),     # BR inline 5th
-					(79.5, 136.5),      # TL triangle 5th
-					(36.5, 69.5),       # TL inline 3rd
-					(59.5, 43.5),       # TL middle
-					(119.5, 53.5),      # BR triangle 3rd
-					(35.5, 38.5),       # TL inline 5th
-					(38.5, 102.5),      # TL natural
-					(124.5, 120.5),     # BR middle
-					(64.5, 110.5),      # TL triangle 3rd
-					(145.5, 61.5),      # BR natural
-					(147.5, 94.5),      # BR inline 3rd
-					(104.5, 27.5),      # BR triangle 5th
-					(40.5, 131.5)]       # TL main
 					
 		
 		self.last_expansion_time = 0
-		self.enemy_expos = [0, 0, 0, 0, 0, 0] # nat, line 3, tri 3, line 5, tri 5, mid
+		self.enemy_natural_taken = False
+		self.enemy_left_bases_taken = []
+		self.enemy_right_bases_taken = []
 		self.scouts_sent = 0
 		self.army_req = 0
 		self.drone_req = 0
@@ -262,7 +220,6 @@ class ZergBot(sc2.BotAI):
 		
 		self.enemy_unit_tags = {}
 		self.enemy_unit_numbers = {}
-		#self.enemy_army_position = None
 		self.enemy_attack_point = None
 
 # mining
@@ -290,11 +247,6 @@ class ZergBot(sc2.BotAI):
 		self.proxy_finished_time = 0
 		
 # army stuff
-		self.army_spot = (127, 81)
-		self.attack_position = None
-		self.rally_point = None
-		self.army_unit_tags = []
-		
 		self.burrow_researched = False
 		self.burrow_movement_researched = False
 		self.army_state = Enums.ArmyState.CONSOLIDATING
@@ -386,11 +338,13 @@ class ZergBot(sc2.BotAI):
 
 		if self.game_info.map_name == "Lightshade LE":
 			self.locations = MapLocations.LightShadeLocations(self.start_location)
+		for i in range(0, len(self.locations.enemy_bases_left)):
+			self.enemy_left_bases_taken.append(False)
+		for i in range(0, len(self.locations.enemy_bases_right)):
+			self.enemy_right_bases_taken.append(False)
 
 
 	async def on_step(self, iteration):
-		return
-
 		self.update_unit_tags()
 		if iteration == 1:
 			self.split_drones()
@@ -529,44 +483,48 @@ class ZergBot(sc2.BotAI):
 ########################################
 	
 	def position_new_overlord(self, unit):
-		for pos in self.overlord_positions:
+		for pos in self.locations.overlord_positions:
 			if self.convert_location(Point2(pos)) not in self.position_to_ovi_dict:
 				self.position_to_ovi_dict[self.convert_location(Point2(pos))] = unit.tag
 				self.do(unit.move(self.convert_location(Point2(pos))))
 				break
 			
 	async def position_overlords(self):
+		# TODO redo position overlords with new positions
+		pass
 		
 		new_expos = self.check_enemy_expansions()
+		"""
 		if new_expos[1]:
-			if self.convert_location(Point2(self.overlord_positions[6])) in self.position_to_ovi_dict:
-				ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[6]))]
+			if self.locations.overlord_positions[6] in self.position_to_ovi_dict:
+				ovi_tag = self.position_to_ovi_dict[self.locations.overlord_positions[6]]
 				if self.units.tags_in([ovi_tag]):
 					self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
 		if new_expos[2]:
-			if self.convert_location(Point2(self.overlord_positions[7])) in self.position_to_ovi_dict:
-				ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[7]))]
+			if self.locations.overlord_positions[7] in self.position_to_ovi_dict:
+				ovi_tag = self.position_to_ovi_dict[self.locations.overlord_positions[7]]
 				if self.units.tags_in([ovi_tag]):
 					self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
 		if new_expos[3]:
-			if self.convert_location(Point2(self.overlord_positions[8])) in self.position_to_ovi_dict:
-				ovi_tag1 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[8]))]
+			if self.locations.overlord_positions[8] in self.position_to_ovi_dict:
+				ovi_tag1 = self.position_to_ovi_dict[Point2(self.locations.overlord_positions[8]]
 				if self.units.tags_in([ovi_tag1]):
 					self.position_new_overlord(self.units.tags_in([ovi_tag1])[0])
-			if self.convert_location(Point2(self.overlord_positions[12])) in self.position_to_ovi_dict:
-				ovi_tag2 = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[12]))]
+			if self.locations.overlord_positions[12] in self.position_to_ovi_dict:
+				ovi_tag2 = self.position_to_ovi_dict[self.locations.overlord_positions[12]]
 				if self.units.tags_in([ovi_tag2]):
 					self.position_new_overlord(self.units.tags_in([ovi_tag2])[0])
 		if new_expos[4]:
-			if self.convert_location(Point2(self.overlord_positions[9])) in self.position_to_ovi_dict:
-				ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[9]))]
+			if self.locations.overlord_positions[9] in self.position_to_ovi_dict:
+				ovi_tag = self.position_to_ovi_dict[self.locations.overlord_positions[9]]
 				if self.units.tags_in([ovi_tag]):
 					self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
 		if new_expos[5]:
-			if self.convert_location(Point2(self.overlord_positions[20])) in self.position_to_ovi_dict:
-				ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[20]))]
+			if self.locations.overlord_positions[20] in self.position_to_ovi_dict:
+				ovi_tag = self.position_to_ovi_dict[self.locations.overlord_positions[20]]
 				if self.units.tags_in([ovi_tag]):
 					self.position_new_overlord(self.units.tags_in([ovi_tag])[0])
+		"""
 	
 	def make_overseers(self):
 		if self.time > 240 and len(self.structures({LAIR, HIVE}).ready) > 0 and len(self.units({OVERSEER, UnitTypeId.OVERLORDCOCOON})) < 3:
@@ -607,7 +565,7 @@ class ZergBot(sc2.BotAI):
 	async def scouting(self):
 		#send scouts
 		if self.scouts_sent == 0 and self.time >= 150:
-			if self.enemy_expos[0] == 0:
+			if self.enemy_natural_taken == False:
 				#enemy natural is late
 				#await self.send_early_scout()
 				pass
@@ -638,8 +596,8 @@ class ZergBot(sc2.BotAI):
 		if self.time < 240:
 			#proxy
 			if self.proxy_status == Enums.ProxyStatus.NONE and len(self.enemy_structures) > 0:
-				furthest_building = self.enemy_start_locations[0].furthest(self.enemy_structures)
-				if self.enemy_start_locations[0].distance_to(furthest_building) > 50:
+				furthest_building = self.locations.enemy_base_main.furthest(self.enemy_structures)
+				if self.locations.enemy_base_main.distance_to(furthest_building) > 50:
 					await self.chat_send("Really? A proxy?")
 					self.proxy_location = furthest_building.position
 					self.proxy_status = Enums.ProxyStatus.PR_RAX_STARTED
@@ -664,20 +622,20 @@ class ZergBot(sc2.BotAI):
 		print(str(self.enemy_structures))
 				
 	async def send_scout(self):
-		if self.convert_location(Point2(self.overlord_positions[2])) in self.position_to_ovi_dict:
-			ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[2]))]
+		if self.locations.overlord_positions[2] in self.position_to_ovi_dict:
+			ovi_tag = self.position_to_ovi_dict[self.locations.overlord_positions[2]]
 			print("scout " + str(ovi_tag))
 			if len(self.units.tags_in([ovi_tag])) == 0:
 				return False
 			for pos in self.locations.main_scout_path:
 				self.do(self.units.tags_in([ovi_tag])[0].move(self.convert_location(Point2(pos)), True)) # TODO fix index out of range error
-			self.position_to_ovi_dict.pop(self.convert_location(Point2(self.overlord_positions[2])))
+			self.position_to_ovi_dict.pop(self.locations.overlord_positions[2])
 			return True
 		return False
 	
 	async def send_early_scout(self):
-		if self.convert_location(Point2(self.overlord_positions[0])) in self.position_to_ovi_dict:
-			ovi_tag = self.position_to_ovi_dict[self.convert_location(Point2(self.overlord_positions[0]))]
+		if self.locations.overlord_positions[0] in self.position_to_ovi_dict:
+			ovi_tag = self.position_to_ovi_dict[self.locations.overlord_positions[0]]
 			for i in [1, 0, 3, 2]:
 				self.do(self.units.tags_in([ovi_tag])[0].move(self.locations.main_scout_path[i], True))
 	
@@ -695,6 +653,9 @@ class ZergBot(sc2.BotAI):
 			self.do(ling.move(self.locations.scouting_path[num][i], True))
 	
 	async def scout_with_lings(self):
+		# TODO redo scouting lings
+		pass
+		"""
 		if not (self.enemy_expos[1] or self.enemy_expos[2]):
 			for i in range(0, len(self.zergling_scout_tags)):
 				if not self.zergling_scout_tags[i]:
@@ -708,20 +669,44 @@ class ZergBot(sc2.BotAI):
 				if ling.is_idle:
 					self.do(ling.move(self.convert_location(self.expos[7])))
 					self.last_ling_scout_time = self.time
+					"""
 				
 	
 	def check_enemy_expansions(self):
-		new_expos = [0, 0, 0, 0, 0, 0]
-		expo_numbers = [7, 3, 9, 6, 2, 4]
-		if len(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})) > 0:
-			for i in range(0, 5):
-				if self.convert_location(Point2(self.expos[expo_numbers[i]])).distance_to_closest(self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})) < 3:
-					if not self.enemy_expos[i]:
-						new_expos[i] = 1
-						self.enemy_expos[i] = 1
+		new_expos = [False, [], []]
+
+		enemy_bases = self.enemy_structures({NEXUS, HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS})
+		if len(enemy_bases) > 0:
+			if self.locations.enemy_base_natural.distance_to_closest(enemy_bases) < 3:
+				if not self.enemy_natural_taken:
+					new_expos[0] = True
+					self.enemy_natural_taken = True
+			else:
+				self.enemy_natural_taken = False
+			
+			for i in range(0, len(self.enemy_left_bases_taken)):
+				if self.locations.enemy_bases_left[i].distance_to_closest(enemy_bases) < 3:
+					if not self.enemy_left_bases_taken[i]:
+						new_expos[1].append(True)
+						self.enemy_left_bases_taken[i] = True
+					else:
+						new_expos[1].append(False)
 				else:
-					self.enemy_expos[i] = 0
+					self.enemy_left_bases_taken[i] = False
+
+			for i in range(0, len(self.enemy_right_bases_taken)):
+				if self.locations.enemy_bases_right[i].distance_to_closest(enemy_bases) < 3:
+					if not self.enemy_right_bases_taken[i]:
+						new_expos[1].append(True)
+						self.enemy_right_bases_taken[i] = True
+					else:
+						new_expos[1].append(False)
+				else:
+					self.enemy_right_bases_taken[i] = False
+			
 		return new_expos
+
+
 	
 	async def track_enemy_army_position(self):
 		if len(self.enemy_units.exclude_type({SCV, DRONE, PROBE})) < 0:
@@ -768,44 +753,67 @@ class ZergBot(sc2.BotAI):
 					i += 1
 				group_num += 1
 			
-			expo_numbers = [7, 3, 9, 6, 2, 4]
 			# display green sphere over top each group
 			for group in enemy_unit_groups:
 				pos = group.center
 				height = self.get_terrain_z_height(pos)
 				self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 4, color = Point3((0, 255, 0)))
 				enemy_bases_locations = []
-				
+			
+			# find the biggest group
 			group = max(enemy_unit_groups, key = lambda k: len(k))
 			pos = group.center
 			self.enemy_main_army_position = pos
-			for i in range(0, len(self.enemy_expos)):
-				if self.enemy_expos[i] > 0:
-					enemy_bases_locations.append(self.convert_location(self.expos[expo_numbers[i]]))
-			closest_position = pos.closest(self.locations.army_positions + enemy_bases_locations)
+			
+			enemy_bases_locations = [self.locations.enemy_base_main]
+			# TODO maybe remove this so it always adds the nat
+			if self.enemy_natural_taken:
+				enemy_bases_locations.append(self.locations.enemy_base_natural)
+			for i in range(0, len(self.enemy_left_bases_taken)):
+				if self.enemy_left_bases_taken[i]:
+					enemy_bases_locations.append(self.locations.enemy_bases_left[i])
+			for i in range(0, len(self.enemy_right_bases_taken)):
+				if self.enemy_right_bases_taken[i]:
+					enemy_bases_locations.append(self.locations.enemy_bases_right[i])
+			
+			closest_position = pos.closest(self.locations.map_graph.get_nodes())
 			if closest_position in enemy_bases_locations:
-				#enemy is on the defensive
+				# enemy is on the defensive
 				self.enemy_army_state = Enums.EnemyArmyState.DEFENDING
 				self.enemy_attack_point = None
 			else:
+				# enemy is not on the defensive
+				# TODO set launch points bases on enemy bases owned
+				# Do we need to do this?
+				"""
 				if closest_position in [self.locations.army_positions[i] for i in self.locations.enemy_launch_points]:
 					self.enemy_army_state = Enums.EnemyArmyState.PREPARING_ATTACK
 				else:
+					self.enemy_army_state = Enums.EnemyArmyState.MOVING_TO_ATTACK"""
+				if (closest_position.distance_to_closest(enemy_bases_locations) < 10 or 
+					closest_position.distance_to(self.locations.enemy_base_main) < 20 or 
+					closest_position.distance_to(self.locations.enemy_base_natural) < 20):
+					self.enemy_army_state = Enums.EnemyArmyState.PREPARING_ATTACK
+				else:
 					self.enemy_army_state = Enums.EnemyArmyState.MOVING_TO_ATTACK
-				dijkstras_graph = DijkstraSPF(self.locations.map_graph, self.locations.army_positions.index(closest_position))
-				closest_point = min(self.locations.possible_attack_points, key = lambda k: dijkstras_graph.get_distance(k))
+
+				dijkstras_graph = DijkstraSPF(self.locations.map_graph, closest_position)
+				# TODO set attack points based on bases owned
+				base_locations = [hatch.position for hatch in self.townhalls]
+				closest_point = min(base_locations, key = lambda k: dijkstras_graph.get_distance(k))
 				most_likely_path = dijkstras_graph.get_path(closest_point)
+				# draw most likely path
 				for i in range(0, len(most_likely_path) - 1):
-					h1 = self.get_terrain_z_height(Point2(self.locations.army_positions[most_likely_path[i]])) + .1
-					h2 = self.get_terrain_z_height(Point2(self.locations.army_positions[most_likely_path[i + 1]])) + .1
-					pos1 = Point3((self.locations.army_positions[most_likely_path[i]][0], self.locations.army_positions[most_likely_path[i]][1], h1))
-					pos2 = Point3((self.locations.army_positions[most_likely_path[i + 1]][0], self.locations.army_positions[most_likely_path[i + 1]][1], h2))
-					self._client.debug_sphere_out(pos1, 4, color = Point3((255, 0, 255)))
-					self._client.debug_sphere_out(pos2, 4, color = Point3((255, 0, 255)))
+					h1 = self.get_terrain_z_height(most_likely_path[i]) + .1
+					h2 = self.get_terrain_z_height(most_likely_path[i + 1]) + .1
+					pos1 = Point3((most_likely_path[i][0],most_likely_path[i][1], h1))
+					pos2 = Point3((most_likely_path[i + 1][0], most_likely_path[i + 1][1], h2))
+					self._client.debug_sphere_out(pos1, 2, color = Point3((255, 0, 255)))
+					self._client.debug_sphere_out(pos2, 2, color = Point3((255, 0, 255)))
 					self._client.debug_line_out(pos1, pos2, color = Point3((255, 0, 255)))
-				self.enemy_attack_point = Point2(self.locations.army_positions[most_likely_path[len(most_likely_path) - 1]])
+				self.enemy_attack_point = most_likely_path[len(most_likely_path) - 1]
 				
-		# 0, 2, 7, 8, 9, 23
+		
 
 	
 	async def update_proxy_progress(self):
@@ -979,6 +987,7 @@ class ZergBot(sc2.BotAI):
 					vector = Point2((closest_spot.x - tumor.position.x, closest_spot.y - tumor.position.y))
 					vector_length = math.sqrt(vector.x * vector.x + vector.y * vector.y)
 					vector = Point2((vector.x / vector_length, vector.y / vector_length))
+					# TODO check if this is right
 					for i in range(8, 1, -1):
 						possible_spot = tumor.position + vector * i
 						height = self.get_terrain_z_height(possible_spot)
@@ -1103,9 +1112,9 @@ class ZergBot(sc2.BotAI):
 		current_tumors = self.structures({CREEPTUMOR, CREEPTUMORBURROWED, CREEPTUMORQUEEN})
 
 		if len(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})) > 0:
-			locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
+			locations = sorted(locations, key=lambda point: point.distance_to(self.locations.base_natural) - 5 * point.distance_to_closest(self.structures({CREEPTUMOR, CREEPTUMORQUEEN})))         
 		else:
-			locations = sorted(locations, key=lambda point: point.distance_to(self.convert_location(Point2(self.expos[10]))))
+			locations = sorted(locations, key=lambda point: point.distance_to(self.locations.base_natural))
 		# add all predetermined creep locations to the front
 		for pos in self.locations.creep_locations:
 			if (len(current_tumors) == 0 or self.convert_location(Point2(pos)).distance_to_closest(current_tumors) > 2) and self.has_creep(self.convert_location(Point2(pos))):
@@ -1178,6 +1187,9 @@ class ZergBot(sc2.BotAI):
 ########################################
 
 	async def find_nydus_spot(self):
+		# TODO move to maplocations
+		return []
+		"""
 		possible_locations = []
 		if self.enemy_expos[5]:
 			if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[11])) and self.is_visible(self.convert_location(self.nydus_positions[11])):
@@ -1217,6 +1229,7 @@ class ZergBot(sc2.BotAI):
 			if self.can_place_single(NYDUSCANAL, self.convert_location(self.nydus_positions[1])) and self.is_visible(self.convert_location(self.nydus_positions[1])):
 				possible_locations.append(self.convert_location(self.nydus_positions[1]))
 		return possible_locations
+		"""
 	
 	async def spawn_nydus_worm(self):
 		possible_spots = await self.find_nydus_spot()
@@ -1293,10 +1306,14 @@ class ZergBot(sc2.BotAI):
 		return (self.locations.army_consolidation_point_left, self.locations.army_consolidation_point_right)
 
 	def get_flank_points(self):
+		return (self.locations.army_consolidation_point_left, self.locations.army_consolidation_point_right)
+		# TODO redo this
+		"""
 		possible_attack_points = self.locations.possible_attack_points
 		for i in range(0, len(possible_attack_points)):
 			if self.enemy_attack_point == self.locations.army_positions[possible_attack_points[i]]:
 				return (self.locations.army_defense_points_left[i], self.locations.army_defense_points_right[i])
+		"""
 
 	def move_units(self, units, position):
 		for unit in units:
@@ -1341,6 +1358,8 @@ class ZergBot(sc2.BotAI):
 		for unit_tag, info in self.main_army_left_info.items():
 			# TODO if it is not a spell caster
 			unit = self.tag_to_unit.get(unit_tag)
+			if len(info.targets) == 0:
+				targets.append(self.enemy_structures.random.position)
 			if unit and unit.distance_to(info.targets[0]) + 1 > left_median.distance_to(info.targets[0]) and unit.weapon_cooldown > 0 and False:
 				self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 255, 0)))
 				self.do(unit.move(info.targets[0]))
@@ -1352,6 +1371,8 @@ class ZergBot(sc2.BotAI):
 		for unit_tag, info in self.main_army_right_info.items():
 			# TODO if it is not a spell caster
 			unit = self.tag_to_unit.get(unit_tag)
+			if len(info.targets) == 0:
+				targets.append(self.enemy_structures.random.position)
 			if unit and unit.distance_to(info.targets[0]) + 1 > left_median.distance_to(info.targets[0]) and unit.weapon_cooldown > 0 and False:
 				self.do(unit.move(info.targets[0]))
 				self._client.debug_sphere_out(unit.position3d, 1, color = Point3((0, 255, 0)))
@@ -1371,77 +1392,32 @@ class ZergBot(sc2.BotAI):
 	
 	def get_targets_right(self):
 		targets = []
-		if self.enemy_expos[4] == 1:
-			# triangle 5th
-			targets.append(self.locations.rally_points[0])
-			targets.append(self.convert_location(self.expos[2]))
-			targets.append(self.convert_location(self.expos[9]))
-			targets.append(self.convert_location(self.expos[7]))
-			targets.append(self.enemy_start_locations[0])
-		elif self.enemy_expos[2] == 1:
-			# triangle 3rd
-			targets.append(self.locations.rally_points[6])
-			targets.append(self.convert_location(self.expos[9]))
-			targets.append(self.convert_location(self.expos[7]))
-			targets.append(self.enemy_start_locations[0])
-		else:
-			# nat
-			targets.append(self.locations.rally_points[1])
-			targets.append(self.convert_location(self.expos[7]))
-			targets.append(self.enemy_start_locations[0])
+		for i in range(len(self.enemy_left_bases_taken) - 1, -1, -1):
+			if self.enemy_left_bases_taken[i]:
+				targets.append(self.locations.rally_points_left[i+1])
+				for j in range(i, -1, -1):
+					targets.append(self.locations.enemy_bases_left[j])
+				break
+		if len(targets) == 0:
+			targets.append(self.locations.rally_points_left[0])
+		targets.append(self.locations.enemy_base_natural)
+		targets.append(self.locations.enemy_base_main)
 		return targets
 
 	def get_targets_left(self):
 		targets = []
-		if self.enemy_expos[3] == 1:
-			# inline 5th
-			targets.append(self.locations.rally_points[5])
-			targets.append(self.convert_location(self.expos[6]))
-			targets.append(self.convert_location(self.expos[3]))
-			targets.append(self.convert_location(self.expos[7]))
-			targets.append(self.enemy_start_locations[0])
-		elif self.enemy_expos[1] == 1:
-			# inline 3rd
-			targets.append(self.locations.rally_points[5])
-			targets.append(self.convert_location(self.expos[3]))
-			targets.append(self.convert_location(self.expos[7]))
-			targets.append(self.enemy_start_locations[0])
-		else:
-			# nat
-			targets.append(self.locations.rally_points[2])
-			targets.append(self.convert_location(self.expos[7]))
-			targets.append(self.enemy_start_locations[0])
+		for i in range(len(self.enemy_right_bases_taken) - 1, -1, -1):
+			if self.enemy_right_bases_taken[i]:
+				targets.append(self.locations.rally_points_right[i+1])
+				for j in range(i, -1, -1):
+					targets.append(self.locations.enemy_bases_right[j])
+				break
+		if len(targets) == 0:
+			targets.append(self.locations.rally_points_right[0])
+		targets.append(self.locations.enemy_base_natural)
+		targets.append(self.locations.enemy_base_main)
 		return targets
 
-	async def find_attack_and_rally_points(self):
-		# for left hand army
-		if self.enemy_expos[3] == 1:
-			# inline 5th
-			self.army_rally_point_left = self.locations.rally_points[5]
-			self.army_target_left = self.convert_location(self.expos[6])
-		elif self.enemy_expos[1] == 1:
-			# inline 3rd
-			self.army_rally_point_left = self.locations.rally_points[5]
-			self.army_target_left = self.convert_location(self.expos[3])
-		else:
-			# natural
-			self.army_rally_point_left = self.locations.rally_points[2]
-			self.army_target_left = self.convert_location(self.expos[7])
-
-		# for right hand army
-		if self.enemy_expos[4] == 1:
-			# triangle 5th
-			self.army_rally_point_right = self.locations.rally_points[0]
-			self.army_target_right = self.convert_location(self.expos[2])
-		elif self.enemy_expos[2] == 1:
-			# triangle 3rd
-			self.army_rally_point_right = self.locations.rally_points[6]
-			self.army_target_right = self.convert_location(self.expos[9])
-		else:
-			# natural
-			self.army_rally_point_right = self.locations.rally_points[1]
-			self.army_target_right = self.convert_location(self.expos[7])
-		
 			
 	async def micro_queen_defense(self, need_to_protect):
 		if self.enemy_attack_point == None:
@@ -1485,14 +1461,19 @@ class ZergBot(sc2.BotAI):
 
 
 	async def micro_roach(self, roach):
+		# TODO redo burrow roach mocro
+		pass
+		"""
 		if roach.health_percentage < .7 and self.burrow_researched and self.burrow_movement_researched and not roach.is_burrowed:
 			self.do(roach(AbilityId.BURROWDOWN_ROACH))
 		elif roach.is_burrowed and roach.health_percentage > .9:
 			self.do(roach(AbilityId.BURROWUP_ROACH))
 		elif roach.is_burrowed:
 			self.do(roach.move(Point2(self.rally_point)))
+		"""
 			
 	async def micro_mutas(self):
+		# TODO redo this too
 		if len(self.muta_group_tags) == 0:
 			self.muta_group_state = Enums.MutaGroupState.CONSOLIDATING
 			for muta in self.units(MUTALISK):
@@ -1559,6 +1540,9 @@ class ZergBot(sc2.BotAI):
 				self.muta_group_state = Enums.MutaGroupState.CONSOLIDATING
 
 	def find_muta_rally_and_attack_points(self):
+		# TODO redo
+		pass
+		"""
 		print("muta find new rally and attack points")
 		# new attack point
 		if self.muta_attack_point == None:
@@ -1629,6 +1613,7 @@ class ZergBot(sc2.BotAI):
 			elif self.muta_rally_point_attack == self.convert_location(self.muta_rally_points[1]):
 				self.muta_rally_point_attack = self.convert_location(self.muta_rally_points[3])
 				self.muta_attack_point = self.convert_location(self.muta_attack_positions[2])
+		"""
 	
 	async def micro_swarm_hosts(self):
 		if len(self.structures(NYDUSNETWORK)) == 0 or len(self.structures(NYDUSCANAL)) == 0:
@@ -1726,6 +1711,7 @@ class ZergBot(sc2.BotAI):
 						self.do(baneling(AbilityId.EXPLODE_EXPLODE))
 	
 	async def micro_infestors(self):
+		# TODO redo
 		print("have infestors")
 		if self.army_state == Enums.ArmyState.ATTACKING or self.army_state == Enums.ArmyState.PROTECTING:
 			print("attacking")
@@ -2028,27 +2014,24 @@ class ZergBot(sc2.BotAI):
 			print(self.current_ling_runby)
 		
 	def find_runby_location(self):
-		left_rally = self.convert_location((55, 23))
-		right_rally = self.convert_location((129, 141))
 		print("RUNBY")
-		if self.enemy_main_army_position == None or self.enemy_main_army_position.distance_to(left_rally) < self.enemy_main_army_position.distance_to(right_rally):
-			self.runby_rally_point = left_rally
-			attack_point = 7
-			if self.enemy_expos[3]:
-				attack_point = 6
-			elif self.enemy_expos[1]:
-				attack_point = 3
+		if self.enemy_main_army_position == None or self.enemy_main_army_position.distance_to(self.locations.ling_runby_left_rally) < self.enemy_main_army_position.distance_to(self.locations.ling_runby_right_rally):
+			self.runby_rally_point = self.locations.ling_runby_left_rally
+			attack_point = self.locations.enemy_base_natural
+			for i in range(len(self.enemy_left_bases_taken)  -1, -1, -1):
+				if self.enemy_left_bases_taken[i]:
+					attack_point = self.locations.enemy_bases_left[i]
+					break
 			print("LEFT")
 		else:
-			self.runby_rally_point = right_rally
-			attack_point = 7
-			if self.enemy_expos[4]:
-				attack_point =  2
-			elif self.enemy_expos[2]:
-				attack_point = 9
+			self.runby_rally_point = self.locations.ling_runby_right_rally
+			attack_point = self.locations.enemy_base_natural
+			for i in range(len(self.enemy_right_bases_taken) -1, -1, -1):
+				if self.enemy_right_bases_taken[i]:
+					attack_point = self.locations.enemy_bases_right[i]
+					break
 			print("RIGHT")
-		self.runby_attack_point = self.convert_location(self.expos[attack_point])
-		# nat, line 3, tri 3, line 5, tri 5, mid 7, 3, 9, 6, 2, 4
+		self.runby_attack_point = attack_point
 			
 
 
@@ -2063,7 +2046,7 @@ class ZergBot(sc2.BotAI):
 	async def display_debug_info(self):
 		self.add_debug_info("Army State: " + self.army_state_machine.get_state())
 		self.add_debug_info(str(self.enemy_unit_numbers))
-		self.add_debug_info("enemy bases "  + str(sum(self.enemy_expos) + 1) + " my bases " + str(len(self.townhalls)))
+		self.add_debug_info("enemy bases "  + str(self.get_num_enemy_bases()) + " my bases " + str(len(self.townhalls)))
 		self.add_debug_info("next expo: " + str(self.last_expansion_time + 120))
 		self.add_debug_info(self.creep_queen_state.name)
 		self.add_debug_info(self.enemy_army_state.name)
@@ -2132,7 +2115,19 @@ class ZergBot(sc2.BotAI):
 		return supply
 	
 	def update_difference_in_bases(self):
-		return (len(self.townhalls) + self.already_pending(HATCHERY)) - (sum(self.enemy_expos) + 1)
+		return (len(self.townhalls) + self.already_pending(HATCHERY)) - self.get_num_enemy_bases()
+
+	def get_num_enemy_bases(self):
+		num = 1
+		if self.enemy_natural_taken:
+			num += 1
+		for base in self.enemy_left_bases_taken:
+			if base:
+				num += 1
+		for base in self.enemy_right_bases_taken:
+			if base:
+				num += 1
+		return num
 
 	def update_saturation(self):
 		drone_max = ((len(self.townhalls) + self.already_pending(HATCHERY)) * 16) + (len(self.structures(EXTRACTOR)) * 3)
@@ -2533,9 +2528,9 @@ class ZergBot(sc2.BotAI):
 		
 		
 run_game(maps.get("LightshadeLE"), [
-		Bot(Race.Zerg, BlankBot()),
+		Bot(Race.Zerg, ZergBot()),
 		Computer(Race.Terran, Difficulty.VeryHard)
-		], realtime = True)
+		], realtime = False)
 
 # Difficulty Easy, Medium, Hard, VeryHard, CheatVision, CheatMoney, CheatInsane
 

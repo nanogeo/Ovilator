@@ -249,11 +249,13 @@ class ZergBot(sc2.BotAI):
 # army stuff
 		self.burrow_researched = False
 		self.burrow_movement_researched = False
+		# TODO remove
 		self.army_state = Enums.ArmyState.CONSOLIDATING
 		self.rally_time = 0
 
 		self.army_condition = Enums.ArmyCondition.DEFENSIVE
 		self.army_composition = Enums.ArmyComp.LING_BANE_HYDRA
+		#self.army_composition = random.choice([e for e in Enums.ArmyComp])
 		self.army_state_machine = States.ArmyStateMachine(self)
 		self.main_army_left = []
 		self.main_army_right = []
@@ -484,9 +486,9 @@ class ZergBot(sc2.BotAI):
 	
 	def position_new_overlord(self, unit):
 		for pos in self.locations.overlord_positions:
-			if self.convert_location(Point2(pos)) not in self.position_to_ovi_dict:
-				self.position_to_ovi_dict[self.convert_location(Point2(pos))] = unit.tag
-				self.do(unit.move(self.convert_location(Point2(pos))))
+			if pos not in self.position_to_ovi_dict:
+				self.position_to_ovi_dict[pos] = unit.tag
+				self.do(unit.move(pos))
 				break
 			
 	async def position_overlords(self):
@@ -653,23 +655,24 @@ class ZergBot(sc2.BotAI):
 			self.do(ling.move(self.locations.scouting_path[num][i], True))
 	
 	async def scout_with_lings(self):
-		# TODO redo scouting lings
-		pass
-		"""
-		if not (self.enemy_expos[1] or self.enemy_expos[2]):
+		if len(self.enemy_units) > 0:
 			for i in range(0, len(self.zergling_scout_tags)):
-				if not self.zergling_scout_tags[i]:
+				ling = self.tag_to_unit.get(self.zergling_scout_tags[i], None)
+				if ling == None:
 					continue
-				ling = self.units.tags_in([self.zergling_scout_tags[i]])[0]
-				if ling.is_idle:
-					self.do(ling.move(self.locations.scouting_path[i][-1], True))
-		if not self.enemy_expos[0] and self.time - self.last_ling_scout_time > 30:
+				closest = ling.position.closest(self.enemy_units)
+				if ling.position.distance_to(closest) < 8:
+					self.do(ling.move(self.locations.base_main))
+				else:
+					self.do(ling.move(self.locations.scouting_path[i][-1]))
+
+		if not self.enemy_natural_taken and self.time - self.last_ling_scout_time > 30:
 			if len(self.units.tags_in(self.zergling_scout_tags)) > 0:
 				ling = self.units.tags_in(self.zergling_scout_tags).random
 				if ling.is_idle:
-					self.do(ling.move(self.convert_location(self.expos[7])))
+					self.do(ling.move(self.locations.enemy_base_natural))
 					self.last_ling_scout_time = self.time
-					"""
+					
 				
 	
 	def check_enemy_expansions(self):
@@ -1704,6 +1707,7 @@ class ZergBot(sc2.BotAI):
 					locust.move(closest_structure)
 	
 	async def micro_banes(self):
+		# TODO redo
 		if self.army_state == Enums.ArmyState.ATTACKING or self.army_state == Enums.ArmyState.PROTECTING:
 			if len(self.units(BANELING)) > 0 and len(self.enemy_units(MARINE)) > 0:
 				for baneling in self.units(BANELING):
@@ -1992,6 +1996,14 @@ class ZergBot(sc2.BotAI):
 		if self.current_ling_runby:
 			if self.current_ling_runby.check_cancel_conditions():
 				# return units etc
+				for unit in self.units.tags_in(self.current_ling_runby.unit_tags):
+					if len(self.main_army_left) > 0:
+						targets = self.main_army_left_info[self.main_army_left[0]].targets.copy()
+					else:
+						targets = []
+						print("Warning adding to empty main army left")
+					self.main_army_left.append(unit.tag)
+					self.main_army_left_info[unit.tag] = ArmyUnitInfo(targets, unit.type_id)
 				self.ling_runby_cooldown = self.current_ling_runby.cooldown
 				self.current_ling_runby = None
 				print("delete ling runby")
@@ -2008,17 +2020,19 @@ class ZergBot(sc2.BotAI):
 			for tag in lings:
 				if tag in self.main_army_left:
 					self.main_army_left.remove(tag)
+					self.main_army_left_info.pop(tag, None)
 				elif tag in self.main_army_right:
 					self.main_army_right.remove(tag)
+					self.main_army_right_info.pop(tag, None)
 			self.current_ling_runby = SpecialActions.LingRunby(self, lings, self.runby_attack_point, self.runby_rally_point)
-			print(self.current_ling_runby)
+			
 		
 	def find_runby_location(self):
 		print("RUNBY")
 		if self.enemy_main_army_position == None or self.enemy_main_army_position.distance_to(self.locations.ling_runby_left_rally) < self.enemy_main_army_position.distance_to(self.locations.ling_runby_right_rally):
 			self.runby_rally_point = self.locations.ling_runby_left_rally
 			attack_point = self.locations.enemy_base_natural
-			for i in range(len(self.enemy_left_bases_taken)  -1, -1, -1):
+			for i in range(len(self.enemy_left_bases_taken) - 1, -1, -1):
 				if self.enemy_left_bases_taken[i]:
 					attack_point = self.locations.enemy_bases_left[i]
 					break
@@ -2026,7 +2040,7 @@ class ZergBot(sc2.BotAI):
 		else:
 			self.runby_rally_point = self.locations.ling_runby_right_rally
 			attack_point = self.locations.enemy_base_natural
-			for i in range(len(self.enemy_right_bases_taken) -1, -1, -1):
+			for i in range(len(self.enemy_right_bases_taken) - 1, -1, -1):
 				if self.enemy_right_bases_taken[i]:
 					attack_point = self.locations.enemy_bases_right[i]
 					break

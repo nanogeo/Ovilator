@@ -31,6 +31,8 @@ class Plan:
 	@staticmethod    
 	async def make_overlords(bot):
 		# Make Overlords
+		if bot.supply_cap >= 200:
+			return True
 		all_larva = bot.units(UnitTypeId.LARVA)
 		if len(all_larva) == 0:
 			return True
@@ -48,6 +50,7 @@ class Plan:
 				current_cap += 8
 			else:
 				return False
+		return True
 
 		# make overseers
 		if not bot.make_overseers():
@@ -717,7 +720,7 @@ class RoachHydraBase(Plan):
 
 	@staticmethod
 	async def make_expansions(bot):
-		if (sum(bot.enemy_expos) + 1 >= len(bot.townhalls) + bot.already_pending(UnitTypeId.HATCHERY)) or (bot.minerals > 600 and not bot.already_pending(UnitTypeId.HATCHERY)):
+		if (bot.get_num_enemy_bases() >= len(bot.townhalls) + bot.already_pending(UnitTypeId.HATCHERY)) or (bot.minerals > 600 and not bot.already_pending(UnitTypeId.HATCHERY)):
 			if bot.minerals >= 300:
 				bot.last_expansion_time = bot.time
 				expansion_location = await bot.get_next_expansion()

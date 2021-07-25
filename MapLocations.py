@@ -379,7 +379,7 @@ class LightShadeLocations:
 
 		
 		# scouting
-
+		# attack l/r, base l/r, drop l/r
 		self.scouting_path = [[self.convert_location((105, 28)), self.convert_location((75, 32)), self.convert_location((55, 23)), self.convert_location((35, 38)), self.convert_location((36, 69))],
 							   [self.convert_location((108, 81)), self.convert_location((75, 32)), self.convert_location((51, 57)), self.convert_location((66, 69))],
 							   [self.convert_location((77, 54)), self.convert_location((92, 67)), self.convert_location((78, 83))],

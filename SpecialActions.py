@@ -11,6 +11,8 @@ from sc2.units import Units
 
 import Enums
 
+import States
+
 # actions: ling runby, baneling drop, fake baneling drop, infestor drop, overlord scout, overseer scout, ovilator
 
 class SpecialAction:
@@ -45,19 +47,25 @@ class LingRunby(SpecialAction):
 		# not attacking
 		# enemy has 3+ bases or enemy is attacking and threat level < 1
 		# have 8+ lings unassigned
-		if (bot.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED) < 1 or
-			bot.army_state != Enums.ArmyState.CONSOLIDATING or
-			not (bot.get_num_enemy_bases() > 3 or (bot.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK and bot.threat_level < 1)) or
-			len(bot.units(UnitTypeId.ZERGLING).tags_in(bot.main_army_left + bot.main_army_right)) < 8):
-			return False
-		return True
+		if (bot.already_pending_upgrade(UpgradeId.ZERGLINGMOVEMENTSPEED) == 1 and
+			bot.army_state_machine.get_state() == States.ArmyStateConsolidating and
+			(bot.get_num_enemy_bases() > 3 or (bot.get_num_enemy_bases() > 2 and bot.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK and bot.threat_level < 1)) and
+			len(bot.units(UnitTypeId.ZERGLING).tags_in(bot.main_army_left + bot.main_army_right)) > 8):
+			return True
+		return False
 
 	def check_cancel_conditions(self):
 		# all lings are dead
 		if len(self.unit_tags) == 0 or len(self.bot.units.tags_in(self.unit_tags)) == 0:
 			return True
+		# we launch an attack
+		if bot.army_state_machine.get_state() == States.ArmyStateRallying or bot.army_state_machine.get_state() == States.ArmyStateAttacking:
+			return True
 		# all workers are dead at attack location
 		# attack location is well defended
+		# enemy army is near attack location
+		if self.bot.enemy_main_army_position.distance_to(self.attack_location) < 20:
+			return True	
 		return False
 
 	async def run_action(self):

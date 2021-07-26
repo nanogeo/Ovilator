@@ -13,7 +13,7 @@ import Enums
 
 import States
 
-# actions: ling runby, baneling drop, fake baneling drop, infestor drop, overlord scout, overseer scout, ovilator
+# actions: ling runby, baneling drop, fake baneling drop, infestor drop, overlord scout, overseer scout, ovilator, baneling landmine, base denial baneling landmine
 
 class SpecialAction:
 	def __init__(self, bot):
@@ -59,7 +59,7 @@ class LingRunby(SpecialAction):
 		if len(self.unit_tags) == 0 or len(self.bot.units.tags_in(self.unit_tags)) == 0:
 			return True
 		# we launch an attack
-		if bot.army_state_machine.get_state() == States.ArmyStateRallying or bot.army_state_machine.get_state() == States.ArmyStateAttacking:
+		if self.bot.army_state_machine.get_state() == States.ArmyStateRallying or self.bot.army_state_machine.get_state() == States.ArmyStateAttacking:
 			return True
 		# all workers are dead at attack location
 		# attack location is well defended
@@ -95,6 +95,62 @@ class LingRunby(SpecialAction):
 			for ling in self.bot.units.tags_in(self.unit_tags):
 				if ling.distance_to_squared(self.attack_location) > 100 or ling.is_idle:
 					self.bot.do(ling.attack(self.attack_location))
+
+
+class BaseDenialLandmine(SpecialAction):
+	def __init__(self, bot, units, attack_location, rally_point):
+		super().__init__(bot)
+		self.unit_tags = list(units)
+		self.rally_point = rally_point
+		self.bane_positions = [attack_location.towards(rally_point, 4.2), attack_location.towards(bot.start_location, 4.2)]
+		self.current_action = Enums.BanelingLandmineState.RALLYING
+
+	@staticmethod
+	def check_prereqs(bot):
+		# burrow researched
+		# not attacking
+		# at least 2 banelings
+		if (bot.already_pending_upgrade(UpgradeId.BURROW) == 1 and
+			bot.army_state_machine.get_state() == 'Consolidating' and
+			len(bot.units(UnitTypeId.BANELING).tags_in(bot.main_army_left + bot.main_army_right)) >= 2):
+			print("can send landmine")
+			return True
+		return False
+
+	def check_cancel_conditions(self):
+		# enemy buildings at attack location
+		# enemy units at attack location
+		# either bane is dead
+		if len(self.unit_tags) < 2 or len(self.bot.units.tags_in(self.unit_tags)) < 2:
+			return True
+
+	async def run_action(self):
+		if self.current_action == Enums.BanelingLandmineState.RALLYING:
+			in_position = True
+			for bane in self.bot.units.tags_in(self.unit_tags):
+				if bane.position.distance_to(self.rally_point) > 5:
+					in_position = False
+					self.bot.do(bane.move(self.rally_point))
+			if in_position:
+				self.current_action = Enums.BanelingLandmineState.MOVING_TO_POSITION
+		elif self.current_action == Enums.BanelingLandmineState.MOVING_TO_POSITION:
+			for i in range(0, len(self.unit_tags)):
+				if not self.bot.tag_to_unit.get(self.unit_tags[i]).is_burrowed and self.bot.tag_to_unit.get(self.unit_tags[i]).position.distance_to(self.bane_positions[i]) < .2:
+					self.bot.do(self.bot.tag_to_unit.get(self.unit_tags[i])(AbilityId.BURROWDOWN_BANELING))
+				else:
+					self.bot.do(self.bot.tag_to_unit.get(self.unit_tags[i]).move(self.bane_positions[i]))
+			for bane in self.bot.units.tags_in(self.unit_tags):
+				if not bane.is_burrowed:
+					return
+			self.current_action = Enums.BanelingLandmineState.WAITING_TO_DETONATE
+		elif self.current_action == Enums.BanelingLandmineState.WAITING_TO_DETONATE:
+			if len(self.bot.enemy_structures({UnitTypeId.HATCHERY, UnitTypeId.COMMANDCENTER, UnitTypeId.NEXUS})) > 0 and self.bane_positions[0].distance_to_closest(self.bot.enemy_structures({UnitTypeId.HATCHERY, UnitTypeId.COMMANDCENTER, UnitTypeId.NEXUS})) < 5:
+				for bane in self.bot.units.tags_in(self.unit_tags):
+					self.bot.do(bane(AbilityId.EXPLODE_EXPLODE))
+
+
+
+
 
 
 class Ovilator(SpecialAction):

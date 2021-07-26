@@ -53,13 +53,10 @@ class BlankBot(sc2.BotAI):
 			 
 
 	async def on_step(self, iteration):
-		for pos in self.hi.map_graph.get_nodes():
-			height = self.get_terrain_z_height(pos) + .2
-			self._client.debug_sphere_out(Point3((pos[0], pos[1], height)), 1, color = Point3((255, 255, 0)))
-			for other in self.hi.map_graph.get_adjacent_nodes(pos):
-				other_height = self.get_terrain_z_height(other) + .2
-				self._client.debug_line_out(Point3((pos[0], pos[1], height)), Point3((other[0], other[1], other_height)), color = Point3((255, 255, 0)))
-		
+		if self.time > 480 and self.i:
+			self.i = False
+			for drone in self.units(DRONE):
+				print(drone.position)
 	
 
 class ZergBot(sc2.BotAI):
@@ -277,6 +274,10 @@ class ZergBot(sc2.BotAI):
 		self.runby_attack_point = None
 		self.ling_runby_cooldown = 0
 
+		self.current_base_denial_landmine = None
+		self.landmine_location = None
+		self.landmine_rally_point = None
+
 # muta micro
 		self.muta_attack_positions = [(57, 41),
 									(35, 102),
@@ -385,6 +386,9 @@ class ZergBot(sc2.BotAI):
 					await self._client.debug_create_unit([[ROACH, 25, self._game_info.map_center, 1]])
 				if m.message == "Hydras":
 					await self._client.debug_create_unit([[HYDRALISK, 25, self._game_info.map_center, 1]])
+				if m.message == "Mine":
+					await self._client.debug_upgrade()
+					await self._client.debug_create_unit([[BANELING, 2, self._game_info.map_center, 1]])
 		
 			
 
@@ -1933,6 +1937,13 @@ class ZergBot(sc2.BotAI):
 		lings = self.units(ZERGLING).tags_in(self.main_army_left + self.main_army_right)
 		if len(lings) > 0:
 			self.do(lings[0](AbilityId.MORPHZERGLINGTOBANELING_BANELING))
+			if lings[0].tag in self.main_army_left:
+				self.main_army_left.remove(lings[0].tag)
+				self.main_army_left_info.pop(lings[0].tag, None)
+			elif lings[0].tag in self.main_army_right:
+				self.main_army_right.remove(lings[0].tag)
+				self.main_army_right_info.pop(lings[0].tag, None)
+
 
 	def make_dropperlord(self):
 		overlord = self.start_location.closest(self.units(OVERLORD).ready)
@@ -2011,6 +2022,23 @@ class ZergBot(sc2.BotAI):
 				await self.current_ling_runby.run_action()
 		else:
 			self.ling_runby_cooldown -= self.step_time[3]
+		
+
+		if self.current_base_denial_landmine:
+			if self.current_base_denial_landmine.check_cancel_conditions():
+				# return units etc
+				for unit in self.units.tags_in(self.current_base_denial_landmine.unit_tags):
+					if len(self.main_army_left) > 0:
+						targets = self.main_army_left_info[self.main_army_left[0]].targets.copy()
+					else:
+						targets = []
+						print("Warning adding to empty main army left")
+					self.main_army_left.append(unit.tag)
+					self.main_army_left_info[unit.tag] = ArmyUnitInfo(targets, unit.type_id)
+				self.current_base_denial_landmine = None
+				print("delete base denial landmines")
+			else:
+				await self.current_base_denial_landmine.run_action()
 
 
 	async def create_new_special_actions(self):
@@ -2025,7 +2053,18 @@ class ZergBot(sc2.BotAI):
 					self.main_army_right.remove(tag)
 					self.main_army_right_info.pop(tag, None)
 			self.current_ling_runby = SpecialActions.LingRunby(self, lings, self.runby_attack_point, self.runby_rally_point)
-			
+		
+		if self.current_base_denial_landmine == None and SpecialActions.BaseDenialLandmine.check_prereqs(self):
+			self.find_base_denial_landmine_location()
+			banes = (self.units(BANELING).tags_in(self.main_army_left + self.main_army_right).closest_n_units(self.landmine_rally_point, 2)).tags
+			for tag in banes:
+				if tag in self.main_army_left:
+					self.main_army_left.remove(tag)
+					self.main_army_left_info.pop(tag, None)
+				elif tag in self.main_army_right:
+					self.main_army_right.remove(tag)
+					self.main_army_right_info.pop(tag, None)
+			self.current_base_denial_landmine = SpecialActions.BaseDenialLandmine(self, banes, self.landmine_location, self.landmine_rally_point)
 		
 	def find_runby_location(self):
 		print("RUNBY")
@@ -2047,7 +2086,28 @@ class ZergBot(sc2.BotAI):
 			print("RIGHT")
 		self.runby_attack_point = attack_point
 			
-
+	def find_base_denial_landmine_location(self):
+		print("BASE DENIAL LANDMINE")
+		best_left = math.inf
+		for i in range(0, len(self.locations.enemy_bases_left)):
+			if not self.enemy_left_bases_taken[i]:
+				best_left = i
+				break
+		best_right = math.inf
+		for i in range(0, min(len(self.locations.enemy_bases_right), best_left + 1)):
+			if not self.enemy_right_bases_taken[i]:
+				best_right = i
+				break
+		if best_left <= best_right and best_left < math.inf:
+			self.landmine_location = self.locations.enemy_bases_left[best_left]
+			self.landmine_rally_point = self.locations.ling_runby_left_rally
+			print("LEFT")
+		elif best_right < best_left:
+			self.landmine_location = self.locations.enemy_bases_right[best_right]
+			self.landmine_rally_point = self.locations.ling_runby_right_rally
+			print("RIGHT")
+		else:
+			print("Error no place to place base denial landmines")
 
 
 ########################################
@@ -2207,6 +2267,23 @@ class ZergBot(sc2.BotAI):
 	async def on_unit_type_changed(self, unit, previous_type):
 		if unit.type_id == OVERSEER:
 			self.add_new_overseer(unit.tag)
+		if unit.type_id == BANELING:
+			if len(self.main_army_left) < len(self.main_army_right):
+				if len(self.main_army_left) > 0:
+					targets = self.main_army_left_info[self.main_army_left[0]].targets.copy()
+				else:
+					targets = []
+					print("Warning adding to empty main army left")
+				self.main_army_left.append(unit.tag)
+				self.main_army_left_info[unit.tag] = ArmyUnitInfo(targets, unit.type_id)
+			else:
+				if len(self.main_army_right) > 0:
+					targets = self.main_army_right_info[self.main_army_right[0]].targets.copy()
+				else:
+					targets = []
+					print("Warning adding to empty main army right")
+				self.main_army_right.append(unit.tag)
+				self.main_army_right_info[unit.tag] = ArmyUnitInfo(targets, unit.type_id)
 	
 	async def on_building_construction_complete(self, building):
 		if building.type_id == UnitTypeId.HATCHERY:

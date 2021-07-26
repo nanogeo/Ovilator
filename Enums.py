@@ -69,6 +69,11 @@ class LingRunByState(Enum):
 	MOVING_TO_RALLY = 2
 	ATTACKING = 3
 
+class BanelingLandmineState(Enum):
+	RALLYING = 1
+	MOVING_TO_POSITION = 2
+	WAITING_TO_DETONATE = 3
+
 class OvilatorState(Enum):
 	CONSOLIDATING = 1
 	MOVING_TO_POSITION = 2

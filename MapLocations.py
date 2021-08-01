@@ -313,7 +313,12 @@ class LightShadeLocations:
 		self.bases = [self.base_main, self.base_natural] + self.bases_left + self.bases_right
 		self.enemy_bases = [self.enemy_base_main, self.enemy_base_natural] + self.enemy_bases_left + self.enemy_bases_right
 
-		
+		self.enemy_natural_prep_points = [self.new_map_points[x] for x in [76, 79, 87, 89, 93, 97]]
+		self.enemy_left_prep_points = [[self.new_map_points[x] for x in [52, 53, 59, 61, 63, 84]],
+										[self.new_map_points[x] for x in [66, 86, 90, 91]]]
+		self.enemy_right_prep_points = [[self.new_map_points[x] for x in [56, 57, 62, 95]],
+										[self.new_map_points[x] for x in [57, 69, 71, 72, 83, 85, 94]],
+										[self.new_map_points[x] for x in [65, 67, 68, 70, 81]]]
 
 
 		# Army

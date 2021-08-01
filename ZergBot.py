@@ -204,7 +204,7 @@ class ZergBot(sc2.BotAI):
 		self.current_quad_x = 0
 		self.current_quad_y = 0
 		self.quad_status = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-		self.quad_creep_coverage = [[(0, 0), (0, 0), (0, 0), (0, 0)], [(0, 0), (0, 0), (0, 0), (0, 0)], [(0, 0), (0, 0), (0, 0), (0, 0)], [(0, 0), (0, 0), (0, 0), (0, 0)]]
+		self.quad_creep_coverage = [[(-1, 0), (-1, 0), (-1, 0), (-1, 0)], [(-1, 0), (-1, 0), (-1, 0), (-1, 0)], [(-1, 0), (-1, 0), (-1, 0), (-1, 0)], [(-1, 0), (-1, 0), (-1, 0), (-1, 0)]]
 		self.my_pixel_map = []
 		self.set_of_non_creep_points = [[set(), set(), set(), set()], [set(), set(), set(), set()], [set(), set(), set(), set()], [set(), set(), set(), set()]]
 		self.quad_creep_locations = [[[], [], [], []], [[], [], [], []], [[], [], [], []], [[], [], [], []]]
@@ -790,20 +790,21 @@ class ZergBot(sc2.BotAI):
 				self.enemy_attack_point = None
 			else:
 				# enemy is not on the defensive
-				# TODO set launch points bases on enemy bases owned
-				# Do we need to do this?
-				"""
-				if closest_position in [self.locations.army_positions[i] for i in self.locations.enemy_launch_points]:
-					self.enemy_army_state = Enums.EnemyArmyState.PREPARING_ATTACK
-				else:
-					self.enemy_army_state = Enums.EnemyArmyState.MOVING_TO_ATTACK"""
-				if (closest_position.distance_to_closest(enemy_bases_locations) < 10 or 
-					closest_position.distance_to(self.locations.enemy_base_main) < 20 or 
-					closest_position.distance_to(self.locations.enemy_base_natural) < 20):
+				prep_points = self.locations.enemy_natural_prep_points
+				for i in range(0, len(self.enemy_left_bases_taken)):
+					if self.enemy_left_bases_taken[i]:
+						for point in self.locations.enemy_left_prep_points[i]:
+							prep_points.append(point)
+				for i in range(0, len(self.enemy_right_bases_taken)):
+					if self.enemy_right_bases_taken[i]:
+						for point in self.locations.enemy_right_prep_points[i]:
+							prep_points.append(point)
+				
+				if closest_position in prep_points:
 					self.enemy_army_state = Enums.EnemyArmyState.PREPARING_ATTACK
 				else:
 					self.enemy_army_state = Enums.EnemyArmyState.MOVING_TO_ATTACK
-
+				
 				dijkstras_graph = DijkstraSPF(self.locations.map_graph, closest_position)
 				# TODO set attack points based on bases owned
 				base_locations = [hatch.position for hatch in self.townhalls]
@@ -1008,24 +1009,25 @@ class ZergBot(sc2.BotAI):
 			else:
 				break
 
+		self.add_debug_info("creep covereage: " + str(self.creep_coverage))
 		if self.creep_queen_state == Enums.QueenState.SPREAD_CREEP:
 			await self.place_creep_tumors()
-			if self.creep_coverage >= .4 or self.enemy_army_state == Enums.EnemyArmyState.PREPARING_ATTACK:
+			if self.creep_coverage >= .4:# or self.enemy_army_state == Enums.EnemyArmyState.PREPARING_ATTACK:
 				self.creep_queen_state = Enums.QueenState.SPREAD_CAREFULLY
 				print("creep reached 40%, start saving energy")
-			elif self.creep_coverage >= .6 or self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
+			elif self.creep_coverage >= .6:# or self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
 				print("creep reached 60%, stop placing tumors")
 				self.creep_queen_state = Enums.QueenState.DEFEND
 		elif self.creep_queen_state == Enums.QueenState.SPREAD_CAREFULLY:
 			await self.place_creep_tumors_carefully()
-			if self.creep_coverage < .4 and self.enemy_army_state == Enums.EnemyArmyState.DEFENDING:
+			if self.creep_coverage < .4:# and self.enemy_army_state == Enums.EnemyArmyState.DEFENDING:
 				print("creep receeded to <40%, stop saving energy")
 				self.creep_queen_state = Enums.QueenState.SPREAD_CREEP
-			elif self.creep_coverage >= .6 or self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
+			elif self.creep_coverage >= .6:# or self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
 				print("creep reached 60%, stop placing tumors")
 				self.creep_queen_state = Enums.QueenState.DEFEND
 		elif self.creep_queen_state == Enums.QueenState.DEFEND:
-			if self.creep_coverage < .6 and not self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
+			if self.creep_coverage < .6:# and not self.enemy_army_state == Enums.EnemyArmyState.MOVING_TO_ATTACK:
 				print("creep receeded to <60%, start placing tumors again")
 				self.creep_queen_state = Enums.QueenState.SPREAD_CAREFULLY
 		
@@ -1042,9 +1044,15 @@ class ZergBot(sc2.BotAI):
 				self.do(self.units.tags_in([queen])[0](AbilityId.BUILD_CREEPTUMOR_QUEEN, Point2(self.creep_spread_to.pop(0))))
 				
 	def creep_test_one(self, point):
-		return self.start_location.distance_to(point) < 30
+		return self.start_location.distance_to(point) < 20
 	
 	def creep_test_one_fail(self):
+		return
+	
+	def creep_test_five(self, point):
+		return self.locations.base_natural.distance_to(point) < 15
+	
+	def creep_test_five_fail(self):
 		return
 	
 	def creep_test_two(self, point):
@@ -1094,6 +1102,10 @@ class ZergBot(sc2.BotAI):
 					# ignore any location inside the main
 					if self.creep_test_one(point):
 						self.creep_test_one_fail()
+						continue
+					# ignore any location near the natural
+					if self.creep_test_five(point):
+						self.creep_test_five_fail()
 						continue
 					# ignore any point that would block an expo
 					if self.creep_test_two(point):
